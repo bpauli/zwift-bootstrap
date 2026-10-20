@@ -651,7 +651,7 @@ checksum = "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
 
 [[package]]
 name = "zwift-bootstrap"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "crc32fast",

@@ -26,6 +26,17 @@ yay -S zwift-bootstrap-bin
 
 The package also installs `zwift-start` and the desktop entry.
 
+On Debian 12 or later and Ubuntu 22.04 or later, add the APT repository and install the package:
+
+```sh
+curl -fsSL https://bpauli.de/apt-packages/key.gpg | sudo tee /usr/share/keyrings/bpauli-apt.gpg > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/bpauli-apt.gpg] https://bpauli.de/apt-packages stable main" | sudo tee /etc/apt/sources.list.d/bpauli.list
+sudo apt update
+sudo apt install zwift-bootstrap
+```
+
+Each release also has the `.deb` file on its GitHub release page.
+
 To build from source:
 
 ```sh

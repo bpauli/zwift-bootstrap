@@ -1,6 +1,6 @@
 [package]
 name = "zwift-bootstrap"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Install, update and start the Zwift game files on Linux with Wine"
 license = "MIT OR Apache-2.0"
@@ -31,3 +31,21 @@ tiny_http = "0.12"
 tempfile = "3.27"
 # Gzip the fake CDN's XML like CloudFront. Already in the graph through ureq.
 flate2 = "1.1"
+
+[package.metadata.deb]
+maintainer = "Burkhard Pauli <burkhard@pauli.tech>"
+copyright = "2026, Burkhard Pauli"
+extended-description = """\
+Unofficial native Linux launcher for Zwift. Installs and updates the Zwift \
+game files from the Zwift CDN with length and CRC-32 checks, and starts \
+ZwiftApp.exe with Wine."""
+section = "games"
+priority = "optional"
+depends = "$auto"
+suggests = "wine, libnotify-bin"
+assets = [
+    ["target/release/zwift-bootstrap", "usr/bin/", "755"],
+    ["contrib/zwift-start", "usr/bin/", "755"],
+    ["contrib/zwift.desktop", "usr/share/applications/zwift-bootstrap.desktop", "644"],
+    ["README.md", "usr/share/doc/zwift-bootstrap/README.md", "644"],
+]
