@@ -4,32 +4,45 @@ on:
   push:
     tags:
       - "v*"
+  # A test build without a release.
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  release:
-    # The oldest supported runner, so the binary runs with glibc 2.35 and later
-    # (Debian 12, Ubuntu 22.04).
-    runs-on: ubuntu-22.04
+  build:
+    runs-on: ubuntu-latest
+    # Ubuntu 22.04 has the oldest glibc (2.35) of the supported systems, so the
+    # binary runs on Debian 12, Ubuntu 22.04 and later. A container, because the
+    # ubuntu-22.04 runner image is retired.
+    container: ubuntu:22.04
     steps:
+      - name: Install build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential ca-certificates curl git jq
+
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-deb
 
-      - name: Check that the tag matches Cargo.toml
+      - name: Read the version
         run: |
           version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
-          test "v${version}" = "${GITHUB_REF_NAME}"
+          echo "VERSION=${version}" >> "${GITHUB_ENV}"
+
+      - name: Check that the tag matches Cargo.toml
+        if: github.ref_type == 'tag'
+        run: test "v${VERSION}" = "${GITHUB_REF_NAME}"
 
       - run: cargo deb --locked
 
       - name: Package
         run: |
-          name="zwift-bootstrap_${GITHUB_REF_NAME#v}_linux_amd64"
+          name="zwift-bootstrap_${VERSION}_linux_amd64"
           mkdir -p "dist/contrib"
           cp target/release/zwift-bootstrap README.md LICENSE-MIT LICENSE-APACHE dist/
           cp contrib/zwift-start contrib/zwift.desktop dist/contrib/
@@ -38,8 +51,26 @@ jobs:
           dpkg-deb --field zwift-bootstrap_*_amd64.deb Depends
           sha256sum "${name}.tar.gz" zwift-bootstrap_*_amd64.deb > checksums.txt
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: |
+            zwift-bootstrap_*_linux_amd64.tar.gz
+            zwift-bootstrap_*_amd64.deb
+            checksums.txt
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+
       - name: Create the GitHub release
-        run: gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --generate-notes zwift-bootstrap_*_linux_amd64.tar.gz zwift-bootstrap_*_amd64.deb checksums.txt
+        run: gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" --generate-notes zwift-bootstrap_*_linux_amd64.tar.gz zwift-bootstrap_*_amd64.deb checksums.txt
         env:
           GH_TOKEN: ${{ github.token }}
 
