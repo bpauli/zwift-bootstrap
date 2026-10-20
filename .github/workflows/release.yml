@@ -1,0 +1,55 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Check that the tag matches Cargo.toml
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          test "v${version}" = "${GITHUB_REF_NAME}"
+
+      - run: cargo build --release --locked
+
+      - name: Package
+        run: |
+          name="zwift-bootstrap_${GITHUB_REF_NAME#v}_linux_amd64"
+          mkdir -p "dist/contrib"
+          cp target/release/zwift-bootstrap README.md LICENSE-MIT LICENSE-APACHE dist/
+          cp contrib/zwift-start contrib/zwift.desktop dist/contrib/
+          tar czf "${name}.tar.gz" -C dist .
+          sha256sum "${name}.tar.gz" > checksums.txt
+
+      - name: Create the GitHub release
+        run: gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --generate-notes zwift-bootstrap_*_linux_amd64.tar.gz checksums.txt
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  update-aur:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger aur-packages update
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::warning::TAP_GITHUB_TOKEN is not set, so the AUR package is not updated"
+            exit 0
+          fi
+          gh workflow run update-package.yml \
+            --repo bpauli/aur-packages \
+            --field package=zwift-bootstrap-bin \
+            --field tag=${GITHUB_REF_NAME} \
+            --field repository=bpauli/zwift-bootstrap
+        env:
+          GH_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}

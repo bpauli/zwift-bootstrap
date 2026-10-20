@@ -16,7 +16,17 @@ This is an unofficial project. It is not made, supported or approved by Zwift, I
 - Rust 1.89 or later, to build.
 - Wine, to play. wine-staging 11 works.
 
-## Build and install
+## Install
+
+On Arch Linux, install the package from the AUR:
+
+```sh
+yay -S zwift-bootstrap-bin
+```
+
+The package also installs `zwift-start` and the desktop entry.
+
+To build from source:
 
 ```sh
 cargo install --path .
@@ -61,10 +71,10 @@ The game writes its logs and settings to `Documents/Zwift` in the prefix. Wine u
 
 ## Desktop entry
 
-`contrib/zwift` updates the game and then starts it. `contrib/zwift.desktop` adds Zwift to your application menu.
+`contrib/zwift-start` updates the game and then starts it. `contrib/zwift.desktop` adds Zwift to your application menu.
 
 ```sh
-install -m755 contrib/zwift ~/.local/bin/zwift
+install -m755 contrib/zwift-start ~/.local/bin/zwift-start
 install -m644 contrib/zwift.desktop ~/.local/share/applications/zwift.desktop
 ```
 
