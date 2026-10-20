@@ -1,0 +1,33 @@
+[package]
+name = "zwift-bootstrap"
+version = "0.1.0"
+edition = "2024"
+description = "Install, update and start the Zwift game files on Linux with Wine"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bpauli/zwift-launcher"
+readme = "README.md"
+keywords = ["zwift", "wine", "linux", "updater"]
+categories = ["command-line-utilities", "games"]
+# std File::lock/try_lock (1.89), io::ErrorKind::CrossesDevices (1.85).
+rust-version = "1.89"
+
+[dependencies]
+# Blocking HTTP, rustls + webpki roots, gzip decode, redirects. No async runtime.
+ureq = "3.4"
+# SIMD CRC-32 (IEEE, the zlib crc32) that the protocol uses.
+crc32fast = "1.5"
+# Read-only DOM. A 5 MB manifest fits in memory; no streaming parser needed.
+roxmltree = "0.21"
+clap = { version = "4.6", features = ["derive"] }
+# Encode manifest path segments for the URL.
+percent-encoding = "2.3"
+# syncfs(2) once before the ver_cur commit point, instead of 19777 fsyncs.
+rustix = { version = "1.1", features = ["fs"] }
+thiserror = "2.0"
+
+[dev-dependencies]
+# Fake CDN in tests: blocking, per-request control for fault injection.
+tiny_http = "0.12"
+tempfile = "3.27"
+# Gzip the fake CDN's XML like CloudFront. Already in the graph through ureq.
+flate2 = "1.1"

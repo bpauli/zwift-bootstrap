@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Zwift
+Comment=Update and start Zwift with Wine
+Exec=zwift
+Icon=applications-games
+Terminal=false
+Categories=Game;Sports;
+StartupWMClass=zwiftapp.exe

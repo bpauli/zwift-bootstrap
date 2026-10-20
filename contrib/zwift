@@ -1,0 +1,5 @@
+#!/bin/sh
+# Update the game files, then start Zwift. Used by zwift.desktop.
+zwift-bootstrap update ||
+    notify-send -a Zwift "Zwift update failed" "Starting the installed version."
+exec zwift-bootstrap launch "$@"
