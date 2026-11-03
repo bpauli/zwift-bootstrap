@@ -128,6 +128,25 @@ fn launch_runs_wine_with_launcher_args_in_the_install_dir() {
 }
 
 #[test]
+fn launch_replaces_libusb0_with_the_ant_shim_before_the_game_starts() {
+    let script: &[u8] = b"head -c 2 libusb0.dll\n";
+    let cdn = FakeCdn::start(Release { version: "1.0.1", files: &[("ZwiftApp.exe", script)] });
+    let dirs = binary_dirs();
+    binary(&dirs, &["install", "--base-url", &cdn.base_url]).output().unwrap();
+    fs::write(dirs.install.join("libusb0.dll"), b"stale").unwrap();
+    let output = binary(&dirs, &["launch"]).env("WINE", "sh").output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(stdout(&output), "MZ");
+    let shim = fs::read(dirs.install.join("libusb0.dll")).unwrap();
+    for export in [&b"usb_open"[..], b"usb_reap_async_nocancel", b"usb_bulk_write"] {
+        assert!(shim.windows(export.len()).any(|w| w == export), "{}", String::from_utf8_lossy(export));
+    }
+
+    let output = binary(&dirs, &["verify"]).output().unwrap();
+    assert_eq!(stdout(&output), "1 files checked, 0 problems\n", "the shim is not a game file");
+}
+
+#[test]
 fn launch_keeps_a_wineprefix_from_the_environment() {
     let script: &[u8] = b"printf '%s\\n' \"$WINEPREFIX\"\n";
     let cdn = FakeCdn::start(Release { version: "1.0.1", files: &[("ZwiftApp.exe", script)] });

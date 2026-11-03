@@ -37,7 +37,7 @@ enum Command {
     /// Runs on 8 threads; the fixed command surface gives it no --jobs.
     Verify(Common),
     /// Run ZwiftApp.exe through $WINE (default `wine`) in $WINEPREFIX
-    /// (default $XDG_DATA_HOME/zwift-wine).
+    /// (default $XDG_DATA_HOME/zwift-wine). Writes libusb0.dll for ANT+ sticks next to it.
     Launch {
         #[command(flatten)]
         common: Common,

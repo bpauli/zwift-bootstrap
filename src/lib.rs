@@ -44,6 +44,11 @@ pub use model::{Checksum, Crc32, PathRejection, RelPath, Version};
 pub const DEFAULT_BASE_URL: &str = "https://cdn.zwift.com/gameassets/Zwift_Updates_Root/";
 pub const LAUNCHER_VERSION: &str = "1.2.0";
 
+/// libusb0.dll that connects ANT_DLL.dll to an ANT USB stick under Wine (shim/libusb0.c,
+/// built by build.rs).
+const ANT_SHIM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libusb0.dll"));
+const ANT_SHIM_NAME: &str = "libusb0.dll";
+
 pub struct Config {
     pub install_dir: PathBuf,
     pub staging_dir: PathBuf,
@@ -219,7 +224,7 @@ impl Bootstrapper {
 
     /// Replace this process with `$WINE ZwiftApp.exe --launcher_version=1.2.0 --token=
     /// EXTRA...`, working dir = install dir. Prefers `ZwiftAppDev.exe` when present.
-    /// Refuses when there is no valid install.
+    /// Refuses when there is no valid install. Writes the ANT+ shim first.
     pub fn launch(&self, wine: &OsStr, wine_prefix: &Path, extra: &[OsString]) -> Result<Infallible, Error> {
         match self.layout.load_local() {
             LocalState::Empty { reason, .. } => return Err(self.not_installed(reason)),
@@ -231,6 +236,7 @@ impl Bootstrapper {
             }
             LocalState::Installed { .. } => {}
         }
+        self.install_ant_shim()?;
         let exe = if self.layout.install.join("ZwiftAppDev.exe").is_file() {
             "ZwiftAppDev.exe"
         } else {
@@ -245,6 +251,16 @@ impl Bootstrapper {
             .current_dir(&self.layout.install)
             .exec();
         Err(Error::Io { path: PathBuf::from(wine), source: error })
+    }
+
+    /// Windows loads ANT_DLL.dll's libusb0.dll from the application dir first, and a sync
+    /// deletes only files that a manifest listed, so the shim lives next to ZwiftApp.exe.
+    fn install_ant_shim(&self) -> Result<(), Error> {
+        let path = self.layout.install.join(ANT_SHIM_NAME);
+        if std::fs::read(&path).is_ok_and(|current| current == ANT_SHIM) {
+            return Ok(());
+        }
+        self.layout.write_install_file(ANT_SHIM_NAME, ANT_SHIM).map_err(sync::io_error(&path))
     }
 
     fn not_installed(&self, reason: String) -> Error {

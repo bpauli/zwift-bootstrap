@@ -13,7 +13,7 @@ This is an unofficial project. It is not made, supported or approved by Zwift, I
 ## Requirements
 
 - Linux on x86_64.
-- Rust 1.89 or later, to build.
+- Rust 1.89 or later and the MinGW-w64 C compiler, to build. On Arch Linux: `pacman -S mingw-w64-gcc`. On Debian and Ubuntu: `apt install gcc-mingw-w64-x86-64`. Set `MINGW_CC` to use a different compiler.
 - Wine, to play. wine-staging 11 works.
 
 ## Install
@@ -104,9 +104,22 @@ The desktop entry uses a generic icon. You can set `Icon=` to an image of your c
 
   After this change, `verify` reports `basic.txt` as changed. A game update can restore the original file.
 
+## ANT+ sensors
+
+Wine has no driver for ANT USB sticks. So `launch` writes its own `libusb0.dll` next to `ZwiftApp.exe`. This file sends the ANT+ traffic of the game through the Linux serial device of the stick. `verify` ignores this file, and game updates do not remove it.
+
+1. Connect the stick. Linux shows it as a serial device, for example `/dev/serial/by-id/usb-Dynastream_Innovations_ANT_USBStick2_123-if00-port0`.
+2. Make sure that your user can open the device. Most desktops give access to the logged-in user. If not, add your user to the group of the device: `uucp` on Arch Linux, `dialout` on Debian and Ubuntu.
+3. Start the game with `zwift-bootstrap launch` and pair the sensors in the pairing screen.
+
+The DLL uses the first device that matches `/dev/serial/by-id/usb-Dynastream_Innovations_*`. To use a different device, set `ANT_PORT`, for example `ANT_PORT=/dev/ttyUSB1 zwift-bootstrap launch`.
+
+Tested with a Dynastream ANT USBStick2 and a Garmin heart rate strap.
+
 ## Not tested
 
-- Bluetooth and ANT+ sensors under Wine.
+- Bluetooth sensors under Wine.
+- ANT+ sticks other than the ANT USBStick2.
 - Frame rate during a ride on hardware other than an AMD Radeon 880M.
 
 ## How it works
