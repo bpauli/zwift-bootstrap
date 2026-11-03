@@ -2,6 +2,8 @@
 
 A native Linux replacement for the Zwift Windows launcher. The binary `zwift-bootstrap` installs and updates the Zwift game files directly from the Zwift CDN. Then it starts `ZwiftApp.exe` with Wine. You do not need the Windows launcher, .NET or WebView2 in your Wine prefix.
 
+![Zwift on the Champs-Élysées, started with zwift-bootstrap on Linux, next to a browser and a terminal](docs/screenshot.png)
+
 This is an unofficial project. It is not made, supported or approved by Zwift, Inc. "Zwift" is a trademark of Zwift, Inc. Zwift can change its update format at any time, and then this tool stops working until it is updated. You need your own Zwift account.
 
 ## What it does
