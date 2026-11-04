@@ -30,7 +30,13 @@
  */
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
+#if __has_include(<afunix.h>)
 #include <afunix.h>
+#else
+/* MinGW-w64 before version 10 (Ubuntu 22.04) has no afunix.h. */
+#define UNIX_PATH_MAX 108
+struct sockaddr_un { ADDRESS_FAMILY sun_family; char sun_path[UNIX_PATH_MAX]; };
+#endif
 #include <windows.h>
 #include <stdarg.h>
 #include <stdbool.h>
