@@ -7,6 +7,8 @@
 mod common;
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -103,15 +105,29 @@ fn verify_command_exits_non_zero_on_problems() {
     assert_eq!(stdout(&bad), "unchanged.dll: missing\n5 files checked, 1 problems\n");
 }
 
+/// A `$WINE` that prints the program it was asked to run and the first two bytes of that
+/// program, then runs the rest of its arguments with `sh`.
+fn fake_wine(dirs: &Dirs) -> PathBuf {
+    let path = dirs.root.path().join("wine");
+    fs::write(&path, "#!/bin/sh\nprintf '%s %s\\n' \"$1\" \"$(head -c 2 \"$1\")\"\nshift\nexec sh \"$@\"\n").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// The first line that `fake_wine` prints when `launch` runs the game through the stub.
+fn stub_line(dirs: &Dirs) -> String {
+    format!("{} MZ\n", dirs.install.join(".zwift-bootstrap/ZwiftLauncher.exe").display())
+}
+
 #[test]
-fn launch_runs_wine_with_launcher_args_in_the_install_dir() {
+fn launch_runs_the_game_through_a_launcher_stub_in_the_install_dir() {
     let script: &[u8] = b"printf '%s\\n' \"$PWD\" \"$WINEPREFIX\" \"$@\"\n";
     let cdn = FakeCdn::start(Release { version: "1.0.1", files: &[("ZwiftApp.exe", script)] });
     let dirs = binary_dirs();
     binary(&dirs, &["install", "--base-url", &cdn.base_url]).output().unwrap();
     let data_home = dirs.root.path().join("data");
     let output = binary(&dirs, &["launch", "--", "--extra", "two words"])
-        .env("WINE", "sh")
+        .env("WINE", fake_wine(&dirs))
         .env("XDG_DATA_HOME", &data_home)
         .env_remove("WINEPREFIX")
         .output()
@@ -121,7 +137,8 @@ fn launch_runs_wine_with_launcher_args_in_the_install_dir() {
     assert_eq!(
         stdout(&output),
         format!(
-            "{}\n{}\n--launcher_version=1.2.0\n--extra\ntwo words\n",
+            "{}{}\n{}\n--launcher_version=1.2.0\n--extra\ntwo words\n",
+            stub_line(&dirs),
             install.display(),
             data_home.join("zwift-wine").display()
         )
@@ -138,10 +155,10 @@ fn launch_writes_the_shims_and_verify_accepts_the_replaced_game_files() {
     let dirs = binary_dirs();
     binary(&dirs, &["install", "--base-url", &cdn.base_url]).output().unwrap();
     fs::write(dirs.install.join("libusb0.dll"), b"stale").unwrap();
-    let output = binary(&dirs, &["launch"]).env("WINE", "sh").output().unwrap();
+    let output = binary(&dirs, &["launch"]).env("WINE", fake_wine(&dirs)).output().unwrap();
     assert!(output.status.success(), "{output:?}");
     let socket = dirs.root.path().join("zwift-bootstrap-ble.sock");
-    assert_eq!(stdout(&output), format!("MZMZMZ\n{}\n", socket.display()));
+    assert_eq!(stdout(&output), format!("{}MZMZMZ\n{}\n", stub_line(&dirs), socket.display()));
     let contains = |file: &str, text: &str| {
         let bytes = fs::read(dirs.install.join(file)).unwrap();
         bytes.windows(text.len()).any(|w| w == text.as_bytes())
@@ -169,9 +186,9 @@ fn launch_keeps_a_wineprefix_from_the_environment() {
     let dirs = binary_dirs();
     binary(&dirs, &["install", "--base-url", &cdn.base_url]).output().unwrap();
     let output =
-        binary(&dirs, &["launch"]).env("WINE", "sh").env("WINEPREFIX", "/opt/my-prefix").output().unwrap();
+        binary(&dirs, &["launch"]).env("WINE", fake_wine(&dirs)).env("WINEPREFIX", "/opt/my-prefix").output().unwrap();
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(stdout(&output), "/opt/my-prefix\n");
+    assert_eq!(stdout(&output), format!("{}/opt/my-prefix\n", stub_line(&dirs)));
 }
 
 #[test]
