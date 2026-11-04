@@ -15,8 +15,7 @@ This is an unofficial project. It is not made, supported or approved by Zwift, I
 ## Requirements
 
 - Linux on x86_64.
-- Rust 1.89 or later, the MinGW-w64 C compiler and the D-Bus development files, to build. On Arch Linux: `pacman -S mingw-w64-gcc dbus`. On Debian and Ubuntu: `apt install gcc-mingw-w64-x86-64 libdbus-1-dev pkg-config`. Set `MINGW_CC` to use a different C compiler.
-- Wine, to play. wine-staging 11 works.
+- Wine. wine-staging 11 works.
 - BlueZ, for Bluetooth LE sensors.
 
 ## Install
@@ -38,15 +37,9 @@ sudo apt update
 sudo apt install zwift-bootstrap
 ```
 
-Each release also has the `.deb` file on its GitHub release page.
+Each release also has the `.deb` file and the binary as a `.tar.gz` file on its GitHub release page. The binary needs the D-Bus library (`libdbus-1`), which most desktops already have.
 
-To build from source:
-
-```sh
-cargo install --path .
-```
-
-This puts `zwift-bootstrap` in `~/.cargo/bin`.
+To build from source, see [docs/building.md](docs/building.md).
 
 ## Usage
 
