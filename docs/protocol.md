@@ -73,7 +73,7 @@ Game files go straight into the install directory at their manifest paths. The t
 `launch` runs this command in the install directory:
 
 ```text
-wine ZwiftApp.exe --launcher_version=1.2.0 --token=
+wine ZwiftApp.exe --launcher_version=1.2.0
 ```
 
-With an empty token, the game shows its own login screen.
+Without `--token=`, the game goes `ZSF_UNINITIALIZED -> ZSF_LOGIN` and shows its own login screen. Do not pass an empty `--token=` value. With an empty value, game 1.124.0 goes to `ZSF_TOKEN_LOGIN`, logs `ZwiftLogin: Logging in with username ** and custom OAuth client 'Game_Launcher'` and `[27] Could not acquire access token because credentials are missing`, and shows "Oops. Wrong email/password" before the user types anything.

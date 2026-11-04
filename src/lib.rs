@@ -234,10 +234,11 @@ impl Bootstrapper {
         Ok(VerifyReport { version: ver_cur.version, checked: items.len(), problems })
     }
 
-    /// Replace this process with `$WINE ZwiftApp.exe --launcher_version=1.2.0 --token=
-    /// EXTRA...`, working dir = install dir. Prefers `ZwiftAppDev.exe` when present.
-    /// Refuses when there is no valid install. Writes the shims first. `ble_socket`: where
-    /// `ble::serve` listens, passed to the game in `BLE_SOCKET_ENV`.
+    /// Replace this process with `$WINE ZwiftApp.exe --launcher_version=1.2.0 EXTRA...`,
+    /// working dir = install dir. Prefers `ZwiftAppDev.exe` when present. Refuses when there
+    /// is no valid install. Writes the shims first. `ble_socket`: where `ble::serve` listens,
+    /// passed to the game in `BLE_SOCKET_ENV`. No `--token=`: with an empty value the game
+    /// tries a token login with no credentials and shows a login error at start.
     pub fn launch(
         &self,
         wine: &OsStr,
@@ -268,7 +269,6 @@ impl Bootstrapper {
         let error = command
             .arg(exe)
             .arg(format!("--launcher_version={LAUNCHER_VERSION}"))
-            .arg("--token=")
             .args(extra)
             .env("WINEPREFIX", wine_prefix)
             .current_dir(&self.layout.install)
