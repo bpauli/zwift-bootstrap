@@ -55,6 +55,7 @@ Options:
 
 - `--dir DIR` sets the install directory. The default is `$XDG_DATA_HOME/zwift` (`~/.local/share/zwift`).
 - `--jobs N` sets the number of parallel downloads for `install` and `update`. The default is 8.
+- `--window` shows the progress of `install` and `update` in a small window. The window opens only when there is something to download, and it has a **Cancel** button. A cancel stops the command with exit code 130. Without a display, the command shows the progress on stderr only.
 - `WINE` sets the Wine command for `launch`. The default is `wine`.
 - `WINEPREFIX` sets the Wine prefix for `launch`. The default is `$XDG_DATA_HOME/zwift-wine`.
 - Arguments after `--` go to the game, for example `zwift-bootstrap launch -- --some-flag`.
@@ -78,7 +79,9 @@ The game writes its logs and settings to `Documents/Zwift` in the prefix. Wine u
 
 ## Desktop entry
 
-`contrib/zwift-start` installs or updates the game and then starts it. The first start downloads about 4.8 GiB before the game opens. `contrib/zwift.desktop` adds Zwift to your application menu.
+`contrib/zwift-start` installs or updates the game and then starts it. `contrib/zwift.desktop` adds Zwift to your application menu.
+
+The first start downloads about 4.8 GiB before the game opens. During the download, a small window shows the progress, the speed and the time that is left. When you click **Cancel**, the download stops and the game does not start. The next start continues the download. A start without an update shows no window. If the update fails, a desktop notification tells you, and the installed version starts.
 
 ```sh
 install -m755 contrib/zwift-start ~/.local/bin/zwift-start

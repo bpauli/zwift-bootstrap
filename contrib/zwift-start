@@ -1,9 +1,11 @@
 #!/bin/sh
 # Install or update the game files, then start Zwift. Used by zwift.desktop.
 # `install`, not `update`: `update` refuses an empty install dir. On an existing install,
-# `install` updates it.
-[ -f "${XDG_DATA_HOME:-$HOME/.local/share}/zwift/Zwift_ver_cur.xml" ] ||
-    notify-send -a Zwift "Installing Zwift" "Downloading about 4.8 GiB. Zwift starts when the download is complete."
-zwift-bootstrap install ||
-    notify-send -a Zwift "Zwift update failed" "Starting the installed version."
+# `install` updates it. Exit code 130: the user cancelled in the progress window.
+zwift-bootstrap install --window
+case $? in
+    0) ;;
+    130) exit 0 ;;
+    *) notify-send -a Zwift "Zwift update failed" "Starting the installed version." ;;
+esac
 exec zwift-bootstrap launch "$@"
