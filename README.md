@@ -107,6 +107,26 @@ The desktop entry uses a generic icon. You can set `Icon=` to an image of your c
 
   After this change, `verify` reports `basic.txt` as changed. A game update can restore the original file.
 
+## Video routes
+
+With the default Wine settings, Zwift shows a technical error when you select **Video** in the route list. Zwift needs H.264 video decoding through Direct3D 11, and Wine supplies this only with its Vulkan renderer.
+
+1. Install a 64-bit Vulkan driver for your GPU and the GStreamer H.264 plugins. On Arch Linux: `pacman -S gst-plugins-bad gst-libav` and `vulkan-radeon`, `vulkan-intel` or `nvidia-utils`. On Debian and Ubuntu: `apt install gstreamer1.0-plugins-bad gstreamer1.0-libav mesa-vulkan-drivers`.
+2. Set the Vulkan renderer for the game only:
+
+   ```sh
+   WINEPREFIX=~/.local/share/zwift-wine wine reg add 'HKCU\Software\Wine\AppDefaults\ZwiftApp.exe\Direct3D' /v renderer /t REG_SZ /d vulkan /f
+   ```
+
+3. In the Zwift settings, switch off **Video Screenshots**. With the Vulkan renderer or the GStreamer plugins, the video capture of the game can stop the game or use all of the RAM.
+4. Start the game. In `~/Documents/Zwift/Logs/Log.txt`, find the line that starts with `VideoDecoderContext`. `hardware decode supported` tells you that the check passed. `0x887A0004` tells you that Wine does not use Vulkan video decoding. Then make sure that you did step 2 and that your driver supports Vulkan video. On Intel GPUs, you possibly must also set `ANV_VIDEO_DECODE=1`.
+
+To use the default renderer again:
+
+```sh
+WINEPREFIX=~/.local/share/zwift-wine wine reg delete 'HKCU\Software\Wine\AppDefaults\ZwiftApp.exe\Direct3D' /f
+```
+
 ## ANT+ sensors
 
 Wine has no driver for ANT USB sticks. So `launch` writes its own `libusb0.dll` next to `ZwiftApp.exe`. This file sends the ANT+ traffic of the game through the Linux serial device of the stick. `verify` ignores this file, and game updates do not remove it.
@@ -134,6 +154,7 @@ Tested with a Wahoo KICKR (power and smart trainer control), a Wahoo cadence sen
 
 - Bluetooth LE sensors and trainers other than the ones above.
 - ANT+ sticks other than the ANT USBStick2.
+- Riding a video route. Only the decoding check after the login is tested, on an AMD Radeon 880M with the Vulkan renderer.
 - Frame rate during a ride on hardware other than an AMD Radeon 880M.
 
 ## How it works
