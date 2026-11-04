@@ -1,5 +1,9 @@
 #!/bin/sh
-# Update the game files, then start Zwift. Used by zwift.desktop.
-zwift-bootstrap update ||
+# Install or update the game files, then start Zwift. Used by zwift.desktop.
+# `install`, not `update`: `update` refuses an empty install dir. On an existing install,
+# `install` updates it.
+[ -f "${XDG_DATA_HOME:-$HOME/.local/share}/zwift/Zwift_ver_cur.xml" ] ||
+    notify-send -a Zwift "Installing Zwift" "Downloading about 4.8 GiB. Zwift starts when the download is complete."
+zwift-bootstrap install ||
     notify-send -a Zwift "Zwift update failed" "Starting the installed version."
 exec zwift-bootstrap launch "$@"

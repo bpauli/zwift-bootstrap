@@ -78,7 +78,7 @@ The game writes its logs and settings to `Documents/Zwift` in the prefix. Wine u
 
 ## Desktop entry
 
-`contrib/zwift-start` updates the game and then starts it. `contrib/zwift.desktop` adds Zwift to your application menu.
+`contrib/zwift-start` installs or updates the game and then starts it. The first start downloads about 4.8 GiB before the game opens. `contrib/zwift.desktop` adds Zwift to your application menu.
 
 ```sh
 install -m755 contrib/zwift-start ~/.local/bin/zwift-start
