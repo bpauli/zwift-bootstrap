@@ -9,10 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install MinGW for the ANT+ shim
+      - name: Install MinGW for the shims and D-Bus for the Bluetooth LE bridge
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 libdbus-1-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy

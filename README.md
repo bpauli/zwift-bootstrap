@@ -15,8 +15,9 @@ This is an unofficial project. It is not made, supported or approved by Zwift, I
 ## Requirements
 
 - Linux on x86_64.
-- Rust 1.89 or later and the MinGW-w64 C compiler, to build. On Arch Linux: `pacman -S mingw-w64-gcc`. On Debian and Ubuntu: `apt install gcc-mingw-w64-x86-64`. Set `MINGW_CC` to use a different compiler.
+- Rust 1.89 or later, the MinGW-w64 C compiler and the D-Bus development files, to build. On Arch Linux: `pacman -S mingw-w64-gcc dbus`. On Debian and Ubuntu: `apt install gcc-mingw-w64-x86-64 libdbus-1-dev pkg-config`. Set `MINGW_CC` to use a different C compiler.
 - Wine, to play. wine-staging 11 works.
+- BlueZ, for Bluetooth LE sensors.
 
 ## Install
 
@@ -118,9 +119,20 @@ The DLL uses the first device that matches `/dev/serial/by-id/usb-Dynastream_Inn
 
 Tested with a Dynastream ANT USBStick2 and a Garmin heart rate strap.
 
+## Bluetooth LE sensors
+
+Wine cannot run the Bluetooth LE library of the game (`BleWin10Lib.dll`). So `launch` replaces `BleWin10Lib.dll` and `BleWin10Lib_fallback.dll` in the install directory with its own DLL, and starts a helper process (`zwift-bootstrap ble-bridge`). The DLL sends the Bluetooth LE requests of the game to the helper, and the helper does the Bluetooth work through BlueZ. The helper stops when the game stops. `verify` accepts the replaced files. A game update can restore the original files, and the next `launch` replaces them again.
+
+1. Make sure that BlueZ runs and that the Bluetooth adapter is on: `bluetoothctl show` must show `Powered: yes`.
+2. Start the game with `zwift-bootstrap launch` and pair the sensors in the pairing screen. You do not have to pair the sensors in Linux first.
+
+The helper listens on `$XDG_RUNTIME_DIR/zwift-bootstrap-ble.sock`. If `XDG_RUNTIME_DIR` is not set, the game starts without Bluetooth LE.
+
+Tested with a Wahoo KICKR (power and smart trainer control), a Wahoo cadence sensor and a Garmin HRM-Pro Plus.
+
 ## Not tested
 
-- Bluetooth sensors under Wine.
+- Bluetooth LE sensors and trainers other than the ones above.
 - ANT+ sticks other than the ANT USBStick2.
 - Frame rate during a ride on hardware other than an AMD Radeon 880M.
 

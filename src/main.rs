@@ -37,12 +37,21 @@ enum Command {
     /// Runs on 8 threads; the fixed command surface gives it no --jobs.
     Verify(Common),
     /// Run ZwiftApp.exe through $WINE (default `wine`) in $WINEPREFIX
-    /// (default $XDG_DATA_HOME/zwift-wine). Writes libusb0.dll for ANT+ sticks next to it.
+    /// (default $XDG_DATA_HOME/zwift-wine). Writes the ANT+ and Bluetooth LE shims next to
+    /// it and starts the Bluetooth LE bridge for the game.
     Launch {
         #[command(flatten)]
         common: Common,
         #[arg(last = true)]
         extra: Vec<OsString>,
+    },
+    /// The Bluetooth LE bridge that `launch` starts.
+    #[command(hide = true)]
+    BleBridge {
+        socket: PathBuf,
+        /// The bridge ends when this process is no longer its parent.
+        #[arg(long)]
+        parent: u32,
     },
 }
 
@@ -127,7 +136,42 @@ fn run(command: Command, progress: &mut Progress) -> Result<ExitCode, Error> {
                 .filter(|p| !p.is_empty())
                 .map(PathBuf::from)
                 .unwrap_or_else(|| xdg_dir("XDG_DATA_HOME", ".local/share").join("zwift-wine"));
-            match open(&common, FIXED_JOBS)?.launch(&wine, &wine_prefix, &extra)? {}
+            let bootstrapper = open(&common, FIXED_JOBS)?;
+            let ble_socket = start_ble_bridge();
+            match bootstrapper.launch(&wine, &wine_prefix, ble_socket.as_deref(), &extra)? {}
+        }
+        Command::BleBridge { socket, parent } => match zwift_bootstrap::ble::serve(&socket, parent) {
+            Ok(()) => Ok(ExitCode::SUCCESS),
+            Err(e) => {
+                eprintln!("ble-bridge: {e}");
+                Ok(ExitCode::from(2))
+            }
+        },
+    }
+}
+
+/// Starts `ble-bridge` as a child with this PID as its parent. `launch` then execs Wine,
+/// which keeps the PID, so the bridge ends with the game. Without a socket path the game
+/// runs without Bluetooth LE: it reports no Bluetooth radio.
+fn start_ble_bridge() -> Option<PathBuf> {
+    let Some(runtime) = env::var_os("XDG_RUNTIME_DIR").filter(|d| !d.is_empty()) else {
+        eprintln!("warning: XDG_RUNTIME_DIR is not set, so Bluetooth LE sensors are off");
+        return None;
+    };
+    let socket = PathBuf::from(runtime).join("zwift-bootstrap-ble.sock");
+    let started = env::current_exe().and_then(|exe| {
+        std::process::Command::new(exe)
+            .arg("ble-bridge")
+            .arg(&socket)
+            .arg(format!("--parent={}", std::process::id()))
+            .stdin(std::process::Stdio::null())
+            .spawn()
+    });
+    match started {
+        Ok(_) => Some(socket),
+        Err(e) => {
+            eprintln!("warning: cannot start the Bluetooth LE bridge ({e}), so Bluetooth LE sensors are off");
+            None
         }
     }
 }

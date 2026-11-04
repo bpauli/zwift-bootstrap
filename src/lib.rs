@@ -20,8 +20,10 @@
 //! - `net`      the CDN: one verified, retrying fetch
 //! - `parallel` the worker pool and the single progress owner
 //! - `sync`     `check` and `sync`: the pipeline and its commit order
+//! - `ble`      the Bluetooth LE bridge that the BleWin10Lib shim talks to
 //! - this file  the public surface, `verify`, `launch`
 
+pub mod ble;
 mod disk;
 mod model;
 mod net;
@@ -44,10 +46,18 @@ pub use model::{Checksum, Crc32, PathRejection, RelPath, Version};
 pub const DEFAULT_BASE_URL: &str = "https://cdn.zwift.com/gameassets/Zwift_Updates_Root/";
 pub const LAUNCHER_VERSION: &str = "1.2.0";
 
-/// libusb0.dll that connects ANT_DLL.dll to an ANT USB stick under Wine (shim/libusb0.c,
-/// built by build.rs).
-const ANT_SHIM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libusb0.dll"));
-const ANT_SHIM_NAME: &str = "libusb0.dll";
+/// Files that `launch` writes into the install dir, built from shim/ by build.rs.
+/// libusb0.dll connects ANT_DLL.dll to an ANT USB stick. The BleWin10Lib DLLs are game
+/// files that Wine cannot load; the game loads one of the two names (a server feature
+/// flag picks it), and the shim sends its Bluetooth LE requests to `ble::serve`.
+const SHIMS: &[(&str, &[u8])] = &[
+    ("libusb0.dll", include_bytes!(concat!(env!("OUT_DIR"), "/libusb0.dll"))),
+    ("BleWin10Lib.dll", include_bytes!(concat!(env!("OUT_DIR"), "/blewin10lib.dll"))),
+    ("BleWin10Lib_fallback.dll", include_bytes!(concat!(env!("OUT_DIR"), "/blewin10lib.dll"))),
+];
+
+/// The environment variable that tells the BleWin10Lib shim where `ble::serve` listens.
+pub const BLE_SOCKET_ENV: &str = "ZWIFT_BLE_SOCKET";
 
 pub struct Config {
     pub install_dir: PathBuf,
@@ -210,9 +220,11 @@ impl Bootstrapper {
         });
         let mut problems = Vec::new();
         for ((path, entry), inspection) in items.iter().zip(results) {
-            let inspection = inspection.map_err(sync::io_error(&self.layout.installed(path)))?;
+            let file = self.layout.installed(path);
+            let inspection = inspection.map_err(sync::io_error(&file))?;
             let kind = match inspection {
                 Inspection::Match | Inspection::LengthOnly => continue,
+                _ if is_shim(path, &file) => continue,
                 Inspection::Missing => ProblemKind::Missing,
                 Inspection::WrongLength(actual) => ProblemKind::WrongLength { expected: entry.length, actual },
                 Inspection::WrongCrc { expected, actual } => ProblemKind::WrongCrc { expected, actual },
@@ -224,8 +236,15 @@ impl Bootstrapper {
 
     /// Replace this process with `$WINE ZwiftApp.exe --launcher_version=1.2.0 --token=
     /// EXTRA...`, working dir = install dir. Prefers `ZwiftAppDev.exe` when present.
-    /// Refuses when there is no valid install. Writes the ANT+ shim first.
-    pub fn launch(&self, wine: &OsStr, wine_prefix: &Path, extra: &[OsString]) -> Result<Infallible, Error> {
+    /// Refuses when there is no valid install. Writes the shims first. `ble_socket`: where
+    /// `ble::serve` listens, passed to the game in `BLE_SOCKET_ENV`.
+    pub fn launch(
+        &self,
+        wine: &OsStr,
+        wine_prefix: &Path,
+        ble_socket: Option<&Path>,
+        extra: &[OsString],
+    ) -> Result<Infallible, Error> {
         match self.layout.load_local() {
             LocalState::Empty { reason, .. } => return Err(self.not_installed(reason)),
             LocalState::Installed { ver_cur, .. } if ver_cur.version == Version::ZERO => {
@@ -236,13 +255,17 @@ impl Bootstrapper {
             }
             LocalState::Installed { .. } => {}
         }
-        self.install_ant_shim()?;
+        self.install_shims()?;
         let exe = if self.layout.install.join("ZwiftAppDev.exe").is_file() {
             "ZwiftAppDev.exe"
         } else {
             "ZwiftApp.exe"
         };
-        let error = Command::new(wine)
+        let mut command = Command::new(wine);
+        if let Some(socket) = ble_socket {
+            command.env(BLE_SOCKET_ENV, socket);
+        }
+        let error = command
             .arg(exe)
             .arg(format!("--launcher_version={LAUNCHER_VERSION}"))
             .arg("--token=")
@@ -253,17 +276,25 @@ impl Bootstrapper {
         Err(Error::Io { path: PathBuf::from(wine), source: error })
     }
 
-    /// Windows loads ANT_DLL.dll's libusb0.dll from the application dir first, and a sync
-    /// deletes only files that a manifest listed, so the shim lives next to ZwiftApp.exe.
-    fn install_ant_shim(&self) -> Result<(), Error> {
-        let path = self.layout.install.join(ANT_SHIM_NAME);
-        if std::fs::read(&path).is_ok_and(|current| current == ANT_SHIM) {
-            return Ok(());
+    /// Windows loads DLLs from the application dir first. A sync deletes only files that a
+    /// manifest listed and fetches only files whose manifest entry changed, so a shim stays
+    /// until a game update brings a new original, and the next launch writes it again.
+    fn install_shims(&self) -> Result<(), Error> {
+        for (name, bytes) in SHIMS {
+            let path = self.layout.install.join(name);
+            if !std::fs::read(&path).is_ok_and(|current| current == *bytes) {
+                self.layout.write_install_file(name, bytes).map_err(sync::io_error(&path))?;
+            }
         }
-        self.layout.write_install_file(ANT_SHIM_NAME, ANT_SHIM).map_err(sync::io_error(&path))
+        Ok(())
     }
 
     fn not_installed(&self, reason: String) -> Error {
         Error::NotInstalled { dir: self.layout.install.clone(), reason }
     }
+}
+
+/// A game file that `launch` replaced with a shim is not a problem for `verify`.
+fn is_shim(path: &RelPath, file: &Path) -> bool {
+    SHIMS.iter().any(|(name, bytes)| path.as_str() == *name && std::fs::read(file).is_ok_and(|b| b == *bytes))
 }

@@ -23,6 +23,7 @@ fn binary(dirs: &Dirs, args: &[&str]) -> Command {
         .arg(&dirs.install)
         .args(&args[1..])
         .env("XDG_CACHE_HOME", dirs.root.path().join("cache"))
+        .env("XDG_RUNTIME_DIR", dirs.root.path())
         .stdin(Stdio::null());
     command
 }
@@ -128,22 +129,37 @@ fn launch_runs_wine_with_launcher_args_in_the_install_dir() {
 }
 
 #[test]
-fn launch_replaces_libusb0_with_the_ant_shim_before_the_game_starts() {
-    let script: &[u8] = b"head -c 2 libusb0.dll\n";
-    let cdn = FakeCdn::start(Release { version: "1.0.1", files: &[("ZwiftApp.exe", script)] });
+fn launch_writes_the_shims_and_verify_accepts_the_replaced_game_files() {
+    let script: &[u8] = b"head -c 2 libusb0.dll; head -c 2 BleWin10Lib.dll; head -c 2 BleWin10Lib_fallback.dll; \
+        printf '\\n%s\\n' \"$ZWIFT_BLE_SOCKET\"\n";
+    let files: &[(&str, &[u8])] =
+        &[("ZwiftApp.exe", script), ("BleWin10Lib_fallback.dll", b"original"), ("BleWin10Lib.dll", b"original")];
+    let cdn = FakeCdn::start(Release { version: "1.0.1", files });
     let dirs = binary_dirs();
     binary(&dirs, &["install", "--base-url", &cdn.base_url]).output().unwrap();
     fs::write(dirs.install.join("libusb0.dll"), b"stale").unwrap();
     let output = binary(&dirs, &["launch"]).env("WINE", "sh").output().unwrap();
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(stdout(&output), "MZ");
-    let shim = fs::read(dirs.install.join("libusb0.dll")).unwrap();
-    for export in [&b"usb_open"[..], b"usb_reap_async_nocancel", b"usb_bulk_write"] {
-        assert!(shim.windows(export.len()).any(|w| w == export), "{}", String::from_utf8_lossy(export));
+    let socket = dirs.root.path().join("zwift-bootstrap-ble.sock");
+    assert_eq!(stdout(&output), format!("MZMZMZ\n{}\n", socket.display()));
+    let contains = |file: &str, text: &str| {
+        let bytes = fs::read(dirs.install.join(file)).unwrap();
+        bytes.windows(text.len()).any(|w| w == text.as_bytes())
+    };
+    for export in ["usb_open", "usb_reap_async_nocancel", "usb_bulk_write"] {
+        assert!(contains("libusb0.dll", export), "{export}");
     }
+    for export in ["BLEStartScanning", "BLEPairToDevice", "BLEWriteToDevice", "BLESetProcessBLEResponse"] {
+        assert!(contains("BleWin10Lib_fallback.dll", export), "{export}");
+    }
+    let ble = |name: &str| fs::read(dirs.install.join(name)).unwrap();
+    assert_eq!(ble("BleWin10Lib.dll"), ble("BleWin10Lib_fallback.dll"));
 
     let output = binary(&dirs, &["verify"]).output().unwrap();
-    assert_eq!(stdout(&output), "1 files checked, 0 problems\n", "the shim is not a game file");
+    assert_eq!(stdout(&output), "3 files checked, 0 problems\n", "a shim is not a problem");
+    fs::write(dirs.install.join("BleWin10Lib.dll"), b"tampered").unwrap();
+    let report = stdout(&binary(&dirs, &["verify"]).output().unwrap());
+    assert!(report.starts_with("BleWin10Lib.dll: crc ") && report.ends_with("\n3 files checked, 1 problems\n"), "{report}");
 }
 
 #[test]

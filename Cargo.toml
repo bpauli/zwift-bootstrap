@@ -24,6 +24,9 @@ percent-encoding = "2.3"
 # syncfs(2) once before the ver_cur commit point, instead of 19777 fsyncs.
 rustix = { version = "1.1", features = ["fs"] }
 thiserror = "2.0"
+bluer = { version = "0.17", features = ["bluetoothd"] }
+tokio = { version = "1", features = ["rt", "net", "io-util", "sync", "time", "macros"] }
+futures-util = "0.3"
 
 [dev-dependencies]
 # Fake CDN in tests: blocking, per-request control for fault injection.
