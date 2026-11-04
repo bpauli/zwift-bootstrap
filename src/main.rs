@@ -227,6 +227,34 @@ fn human(bytes: u64) -> String {
     }
 }
 
+/// Bytes per second over the samples of the last 3 s.
+#[derive(Default)]
+struct Rate {
+    samples: VecDeque<(Instant, u64)>,
+    per_second: f64,
+}
+
+impl Rate {
+    const WINDOW: Duration = Duration::from_secs(3);
+
+    fn record(&mut self, now: Instant, bytes: u64) {
+        self.samples.push_back((now, bytes));
+        while self.samples.front().is_some_and(|(t, _)| now - *t > Self::WINDOW) {
+            self.samples.pop_front();
+        }
+        self.per_second = match (self.samples.front(), self.samples.back()) {
+            (Some((t0, b0)), Some((t1, b1))) if t1 > t0 => {
+                b1.saturating_sub(*b0) as f64 / (*t1 - *t0).as_secs_f64()
+            }
+            _ => 0.0,
+        };
+    }
+
+    fn clear(&mut self) {
+        *self = Rate::default();
+    }
+}
+
 /// One `\r`-rewritten line on a TTY (`IsTerminal`), else a plain line every 5 s:
 /// `staging  1234/19777 files  1.21/4.83 GiB  42.0 MiB/s`. Retries and warnings go on
 /// their own lines. The numbers come from each `Tally` snapshot; only the rate keeps
@@ -236,12 +264,10 @@ struct Progress {
     phase: Option<Phase>,
     line_open: bool,
     last_plain: Option<Instant>,
-    /// `(when, bytes)` samples over the last few seconds, for the rate.
-    window: VecDeque<(Instant, u64)>,
+    rate: Rate,
 }
 
 impl Progress {
-    const RATE_WINDOW: Duration = Duration::from_secs(3);
     const PLAIN_EVERY: Duration = Duration::from_secs(5);
 
     fn new() -> Progress {
@@ -250,7 +276,7 @@ impl Progress {
             phase: None,
             line_open: false,
             last_plain: None,
-            window: VecDeque::new(),
+            rate: Rate::default(),
         }
     }
 
@@ -258,7 +284,7 @@ impl Progress {
         match event {
             Event::Phase(phase) => {
                 self.phase = Some(phase);
-                self.window.clear();
+                self.rate.clear();
                 let text = match phase {
                     Phase::CheckingVersion => "checking version",
                     Phase::FetchingManifest => "fetching manifest",
@@ -279,28 +305,18 @@ impl Progress {
     }
 
     fn progress_line(&mut self, tally: Tally) -> String {
-        let now = Instant::now();
         let measured = match self.phase {
             Some(Phase::Verifying) => tally.bytes_done,
             _ => tally.bytes_downloaded,
         };
-        self.window.push_back((now, measured));
-        while self.window.front().is_some_and(|(t, _)| now - *t > Self::RATE_WINDOW) {
-            self.window.pop_front();
-        }
-        let rate = match (self.window.front(), self.window.back()) {
-            (Some((t0, b0)), Some((t1, b1))) if t1 > t0 => {
-                b1.saturating_sub(*b0) as f64 / (*t1 - *t0).as_secs_f64()
-            }
-            _ => 0.0,
-        };
+        self.rate.record(Instant::now(), measured);
         let label = if self.phase == Some(Phase::Verifying) { "verifying" } else { "staging" };
         format!(
             "{label}  {}/{} files  {}  {}/s",
             tally.files_done,
             tally.files_total,
             byte_pair(tally.bytes_done, tally.bytes_total),
-            human(rate as u64)
+            human(self.rate.per_second as u64)
         )
     }
 
