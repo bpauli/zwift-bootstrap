@@ -8,8 +8,8 @@ repository = "https://github.com/bpauli/zwift-bootstrap"
 readme = "README.md"
 keywords = ["zwift", "wine", "linux", "updater"]
 categories = ["command-line-utilities", "games"]
-# std File::lock/try_lock (1.89), io::ErrorKind::CrossesDevices (1.85).
-rust-version = "1.89"
+# eframe 0.37 (1.95), std File::lock/try_lock (1.89).
+rust-version = "1.95"
 
 [dependencies]
 # Blocking HTTP, rustls + webpki roots, gzip decode, redirects. No async runtime.
@@ -27,6 +27,7 @@ thiserror = "2.0"
 bluer = { version = "0.17", features = ["bluetoothd"] }
 tokio = { version = "1", features = ["rt", "net", "io-util", "sync", "time", "macros"] }
 futures-util = "0.3"
+eframe = { version = "0.37", default-features = false, features = ["glow", "wayland", "x11", "default_fonts"] }
 
 [dev-dependencies]
 # Fake CDN in tests: blocking, per-request control for fault injection.

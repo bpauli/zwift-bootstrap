@@ -173,3 +173,20 @@ fn launch_keeps_a_wineprefix_from_the_environment() {
     assert!(output.status.success(), "{output:?}");
     assert_eq!(stdout(&output), "/opt/my-prefix\n");
 }
+
+#[test]
+fn install_window_without_a_display_installs_in_text_mode() {
+    let cdn = FakeCdn::start(A);
+    let plain = binary(&binary_dirs(), &["install", "--base-url", &cdn.base_url]).output().unwrap();
+    let dirs = binary_dirs();
+    let output = binary(&dirs, &["install", "--window", "--base-url", &cdn.base_url])
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(stdout(&output), stdout(&plain));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(stderr.matches("warning: cannot open the progress window (").count(), 1, "{stderr}");
+    assert_installed(&dirs, &cdn.published());
+}

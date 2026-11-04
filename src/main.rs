@@ -1,5 +1,8 @@
 //! The shell: argv and environment in, library calls, text out, exit code.
-//! Owns the XDG defaults and the progress line. No protocol knowledge.
+//! Owns the XDG defaults, the progress line and the progress window (window.rs).
+//! No protocol knowledge.
+
+mod window;
 
 use std::collections::VecDeque;
 use std::env;
@@ -70,6 +73,10 @@ struct SyncArgs {
     common: Common,
     #[arg(long, default_value = "8")]
     jobs: NonZeroUsize,
+    /// Also show the progress in a window. The window opens only when there is something to
+    /// download. Exit code 130 when the user cancels.
+    #[arg(long)]
+    window: bool,
 }
 
 fn main() -> ExitCode {
@@ -90,7 +97,8 @@ fn main() -> ExitCode {
     }
 }
 
-/// Exit codes: 0 ok or up to date, 1 `verify` found problems, 2 any error.
+/// Exit codes: 0 ok or up to date, 1 `verify` found problems, 2 any error, 130 cancelled in
+/// the progress window.
 fn run(command: Command, progress: &mut Progress) -> Result<ExitCode, Error> {
     match command {
         Command::Check(common) => {
@@ -177,7 +185,18 @@ fn start_ble_bridge() -> Option<PathBuf> {
 }
 
 fn sync(args: &SyncArgs, mode: SyncMode, progress: &mut Progress) -> Result<ExitCode, Error> {
-    let outcome = open(&args.common, args.jobs)?.sync(mode, &mut |event| progress.on_event(event))?;
+    let bootstrapper = open(&args.common, args.jobs)?;
+    let outcome = if args.window {
+        match window::sync(bootstrapper, mode, progress) {
+            window::End::Finished(result) => result?,
+            window::End::Cancelled => {
+                progress.note("cancelled");
+                return Ok(ExitCode::from(130));
+            }
+        }
+    } else {
+        bootstrapper.sync(mode, &mut |event| progress.on_event(event))?
+    };
     progress.end_line();
     match outcome {
         SyncOutcome::Current { version } => println!("up to date at {version}"),

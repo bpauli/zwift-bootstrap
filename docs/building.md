@@ -4,7 +4,7 @@ You need these steps only to build zwift-bootstrap yourself. The AUR package, th
 
 ## Requirements
 
-- Rust 1.89 or later.
+- Rust 1.95 or later.
 - The MinGW-w64 C compiler. It builds the two Windows DLLs that `launch` writes next to `ZwiftApp.exe`: `libusb0.dll` for ANT+ sensors and the replacement `BleWin10Lib.dll` for Bluetooth LE sensors. The binary contains both DLLs. Set `MINGW_CC` to use a different C compiler.
 - The D-Bus development files. The Bluetooth LE bridge talks to BlueZ through D-Bus.
 
@@ -20,7 +20,7 @@ On Debian and Ubuntu:
 apt install gcc-mingw-w64-x86-64 libdbus-1-dev pkg-config
 ```
 
-If the Rust package of your release is older than 1.89, install Rust with [rustup](https://rustup.rs).
+If the Rust package of your release is older than 1.95, install Rust with [rustup](https://rustup.rs).
 
 ## Build and install
 
