@@ -121,7 +121,7 @@ fn launch_runs_wine_with_launcher_args_in_the_install_dir() {
     assert_eq!(
         stdout(&output),
         format!(
-            "{}\n{}\n--launcher_version=1.2.0\n--token=\n--extra\ntwo words\n",
+            "{}\n{}\n--launcher_version=1.2.0\n--extra\ntwo words\n",
             install.display(),
             data_home.join("zwift-wine").display()
         )
