@@ -56,6 +56,11 @@ const SHIMS: &[(&str, &[u8])] = &[
     ("BleWin10Lib_fallback.dll", include_bytes!(concat!(env!("OUT_DIR"), "/blewin10lib.dll"))),
 ];
 
+/// The parent process of the game, built from shim/zwiftlauncher.c. Without a parent named
+/// `ZwiftLauncher.exe` the game shows "Could not run Update process" at start.
+const LAUNCHER_STUB: (&str, &[u8]) =
+    ("ZwiftLauncher.exe", include_bytes!(concat!(env!("OUT_DIR"), "/zwiftlauncher.exe")));
+
 /// The environment variable that tells the BleWin10Lib shim where `ble::serve` listens.
 pub const BLE_SOCKET_ENV: &str = "ZWIFT_BLE_SOCKET";
 
@@ -234,11 +239,13 @@ impl Bootstrapper {
         Ok(VerifyReport { version: ver_cur.version, checked: items.len(), problems })
     }
 
-    /// Replace this process with `$WINE ZwiftApp.exe --launcher_version=1.2.0 EXTRA...`,
-    /// working dir = install dir. Prefers `ZwiftAppDev.exe` when present. Refuses when there
-    /// is no valid install. Writes the shims first. `ble_socket`: where `ble::serve` listens,
-    /// passed to the game in `BLE_SOCKET_ENV`. No `--token=`: with an empty value the game
-    /// tries a token login with no credentials and shows a login error at start.
+    /// Replace this process with
+    /// `$WINE .zwift-bootstrap/ZwiftLauncher.exe ZwiftApp.exe --launcher_version=1.2.0 EXTRA...`,
+    /// working dir = install dir. The stub starts the game as its child. Prefers
+    /// `ZwiftAppDev.exe` when present. Refuses when there is no valid install. Writes the
+    /// shims first. `ble_socket`: where `ble::serve` listens, passed to the game in
+    /// `BLE_SOCKET_ENV`. No `--token=`: with an empty value the game tries a token login with
+    /// no credentials and shows a login error at start.
     pub fn launch(
         &self,
         wine: &OsStr,
@@ -257,6 +264,7 @@ impl Bootstrapper {
             LocalState::Installed { .. } => {}
         }
         self.install_shims()?;
+        let stub = self.install_launcher_stub()?;
         let exe = if self.layout.install.join("ZwiftAppDev.exe").is_file() {
             "ZwiftAppDev.exe"
         } else {
@@ -267,6 +275,7 @@ impl Bootstrapper {
             command.env(BLE_SOCKET_ENV, socket);
         }
         let error = command
+            .arg(stub)
             .arg(exe)
             .arg(format!("--launcher_version={LAUNCHER_VERSION}"))
             .args(extra)
@@ -287,6 +296,16 @@ impl Bootstrapper {
             }
         }
         Ok(())
+    }
+
+    /// In `.zwift-bootstrap/`, so no manifest path can collide with it.
+    fn install_launcher_stub(&self) -> Result<PathBuf, Error> {
+        let (name, bytes) = LAUNCHER_STUB;
+        let path = self.layout.private(name);
+        if !std::fs::read(&path).is_ok_and(|current| current == bytes) {
+            self.layout.write_private_file(name, bytes).map_err(sync::io_error(&path))?;
+        }
+        Ok(path)
     }
 
     fn not_installed(&self, reason: String) -> Error {

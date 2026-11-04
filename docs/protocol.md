@@ -73,7 +73,9 @@ Game files go straight into the install directory at their manifest paths. The t
 `launch` runs this command in the install directory:
 
 ```text
-wine ZwiftApp.exe --launcher_version=1.2.0
+wine .zwift-bootstrap/ZwiftLauncher.exe ZwiftApp.exe --launcher_version=1.2.0
 ```
+
+`ZwiftLauncher.exe` is a small stub from `shim/zwiftlauncher.c`. It starts the rest of its command line as a child process and waits for it. The game needs a parent process with this name. At start, game 1.124.0 finds the parent of each `zwiftapp.exe` process and reads the image path of that parent. If the path does not contain `ZwiftLauncher.exe`, `ZwiftHelper.exe` or `devenv.exe`, the game runs `ZwiftLauncher.exe` and exits. When that start fails, the game shows "Could not run Update process. Zwift may not be up to date." with the title `ERROR ZA1`, and continues after the user clicks OK. A process named `ZwiftAppDev.exe` skips this check.
 
 Without `--token=`, the game goes `ZSF_UNINITIALIZED -> ZSF_LOGIN` and shows its own login screen. Do not pass an empty `--token=` value. With an empty value, game 1.124.0 goes to `ZSF_TOKEN_LOGIN`, logs `ZwiftLogin: Logging in with username ** and custom OAuth client 'Game_Launcher'` and `[27] Could not acquire access token because credentials are missing`, and shows "Oops. Wrong email/password" before the user types anything.

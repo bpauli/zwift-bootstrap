@@ -105,7 +105,7 @@ impl Layout {
     pub(crate) fn staged_meta(&self, name: &str) -> PathBuf {
         self.staging.join("meta").join(name)
     }
-    fn private(&self, name: &str) -> PathBuf {
+    pub(crate) fn private(&self, name: &str) -> PathBuf {
         self.install.join(PRIVATE_DIR).join(name)
     }
 
@@ -270,6 +270,11 @@ impl Layout {
     /// fsync dir.
     pub(crate) fn write_install_file(&self, name: &str, bytes: &[u8]) -> io::Result<()> {
         write_atomic(&self.install.join(name), &self.private(&format!("{name}.tmp")), bytes)
+    }
+
+    /// Write `install/.zwift-bootstrap/<name>` atomically.
+    pub(crate) fn write_private_file(&self, name: &str, bytes: &[u8]) -> io::Result<()> {
+        write_atomic(&self.private(name), &self.private(&format!("{name}.tmp")), bytes)
     }
 
     /// After success: remove `files/`, `partial/`, `meta/`. Ignores errors.
