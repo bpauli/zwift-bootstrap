@@ -3610,6 +3610,7 @@ dependencies = [
  "futures-util",
  "glow",
  "glutin_egl_sys",
+ "libc",
  "libloading",
  "percent-encoding",
  "roxmltree",

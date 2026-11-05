@@ -2,6 +2,7 @@
 //! socket and does what its requests ask with bluer.
 
 use std::collections::HashMap;
+use std::os::fd::OwnedFd;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -15,6 +16,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::task::{JoinHandle, JoinSet};
 
+use super::mgmt::{self, Mgmt};
 use super::protocol::{Event, Request, ServiceSpec, advertisement_sections, parse_request};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -26,11 +28,19 @@ const RESOLVE_TIMEOUT: Duration = Duration::from_secs(45);
 /// Runs while process `parent` is this process's parent: `launch` passes its own PID,
 /// which Wine keeps after the exec, so the bridge ends with the game.
 pub fn serve(socket: &Path, parent: u32) -> Result<(), String> {
+    let mgmt = match mgmt::open() {
+        Ok(fd) => Some(fd),
+        Err(e) => {
+            let fallback = "so connections use the preferred interval of the sensor";
+            eprintln!("ble-bridge: cannot open the Bluetooth management socket ({e}), {fallback}");
+            None
+        }
+    };
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| e.to_string())?;
-    runtime.block_on(run(socket, parent))
+    runtime.block_on(run(socket, parent, mgmt))
 }
 
-async fn run(socket: &Path, parent: u32) -> Result<(), String> {
+async fn run(socket: &Path, parent: u32, mgmt: Option<OwnedFd>) -> Result<(), String> {
     if std::os::unix::process::parent_id() != parent {
         return Ok(());
     }
@@ -46,6 +56,17 @@ async fn run(socket: &Path, parent: u32) -> Result<(), String> {
             None
         }
     };
+    let mgmt = match (mgmt, &adapter) {
+        (Some(fd), Some(adapter)) => match Mgmt::new(fd, adapter.name()) {
+            Ok(mgmt) => Some(mgmt),
+            Err(e) => {
+                eprintln!("ble-bridge: Bluetooth management socket: {e}");
+                None
+            }
+        },
+        _ => None,
+    };
+    let mgmt = Arc::new(tokio::sync::Mutex::new(mgmt));
     let parent_gone = async {
         while std::os::unix::process::parent_id() == parent {
             tokio::time::sleep(Duration::from_secs(1)).await;
@@ -59,7 +80,7 @@ async fn run(socket: &Path, parent: u32) -> Result<(), String> {
                 let Ok((stream, _)) = accepted else { continue };
                 tokio::select! {
                     () = &mut parent_gone => break,
-                    () = serve_game(stream, adapter.clone()) => {}
+                    () = serve_game(stream, adapter.clone(), mgmt.clone()) => {}
                 }
             }
         }
@@ -106,9 +127,11 @@ struct Bridge {
     adapter: Adapter,
     state: Arc<Mutex<State>>,
     events: UnboundedSender<Event>,
+    /// None without CAP_NET_ADMIN: connections then use the interval the sensor prefers.
+    mgmt: Arc<tokio::sync::Mutex<Option<Mgmt>>>,
 }
 
-async fn serve_game(stream: UnixStream, adapter: Option<Adapter>) {
+async fn serve_game(stream: UnixStream, adapter: Option<Adapter>, mgmt: Arc<tokio::sync::Mutex<Option<Mgmt>>>) {
     let (read, mut write) = stream.into_split();
     let (events, mut queue) = unbounded_channel::<Event>();
     let writer = tokio::spawn(async move {
@@ -125,7 +148,7 @@ async fn serve_game(stream: UnixStream, adapter: Option<Adapter>) {
         writer.abort();
         return;
     };
-    let bridge = Bridge { adapter, state: Arc::default(), events };
+    let bridge = Bridge { adapter, state: Arc::default(), events, mgmt };
     let radio = tokio::spawn(bridge.clone().watch_radio());
     let mut scan: Option<JoinHandle<()>> = None;
     let mut lines = BufReader::new(read).lines();
@@ -324,6 +347,7 @@ impl Bridge {
     /// report the match, then read the readable ones, as the original DLL does.
     async fn connect(&self, device: &Device, name: &str) -> Result<(), String> {
         let address = device.address();
+        self.ask_fast_interval(device, name).await;
         tokio::time::timeout(CONNECT_TIMEOUT, device.connect())
             .await
             .map_err(|_| "timeout".to_owned())?
@@ -409,6 +433,30 @@ impl Bridge {
             }
         }
         Ok(())
+    }
+
+    /// Loads the kernel default interval (30 ms to 50 ms) for the next connection to the
+    /// device. Without it, the kernel connects at the interval the sensor prefers, which
+    /// bluetoothd loaded after the first service discovery: 180 ms on a KICKR makes the
+    /// discovery take 17 s in place of 4 s, and 990 ms on a cadence sensor 53 s.
+    async fn ask_fast_interval(&self, device: &Device, name: &str) {
+        let mut mgmt = self.mgmt.lock().await;
+        let Some(socket) = mgmt.as_ref() else {
+            return;
+        };
+        let address_type = match device.address_type().await {
+            Ok(address_type) => address_type,
+            Err(e) => return self.log(format!("Bluetooth helper: address type of {name}: {e}")),
+        };
+        match socket.load_connection_parameters(device.address(), address_type).await {
+            Ok(()) => {}
+            Err(mgmt::Error::PermissionDenied) => {
+                let fallback = "so connections use the preferred interval of the sensor";
+                self.log(format!("Bluetooth helper: no CAP_NET_ADMIN, {fallback}"));
+                *mgmt = None;
+            }
+            Err(mgmt::Error::Other(e)) => self.log(format!("Bluetooth helper: connection interval for {name}: {e}")),
+        }
     }
 
     async fn watch_connection(self, device: Device) {

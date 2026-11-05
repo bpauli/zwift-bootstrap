@@ -27,6 +27,9 @@ thiserror = "2.0"
 bluer = { version = "0.17", features = ["bluetoothd"] }
 tokio = { version = "1", features = ["rt", "net", "io-util", "sync", "time", "macros"] }
 futures-util = "0.3"
+# The MGMT socket of the Bluetooth LE bridge and the capability drop: raw syscalls that
+# no dependency wraps. Already in the graph.
+libc = "0.2"
 eframe = { version = "0.37", default-features = false, features = ["glow", "wayland", "x11", "default_fonts"] }
 # The GPU test of `launch`: EGL bindings, libEGL loaded at run time, OpenGL. Already in the
 # graph through eframe.
