@@ -10,6 +10,8 @@
 //!     .zwift-bootstrap/pending       name of the manifest a commit is moving toward
 //!     .zwift-bootstrap/tmp           cross-filesystem copy target, then rename
 //!     .zwift-bootstrap/<name>.tmp    atomic write of a root control file
+//!     .zwift-bootstrap/graphics      the `graphics` setting, one word
+//!     .zwift-bootstrap/profiles/     copies of the original graphics profile files
 //!     <manifest paths>               game files
 //! <staging>/
 //!     lock                           flock: one run per staging dir

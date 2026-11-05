@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use clap::{Args, Parser, Subcommand};
 use zwift_bootstrap::{
-    Bootstrapper, Config, Error, Event, Phase, ProblemKind, Status, SyncMode, SyncOutcome, Tally,
+    Bootstrapper, Config, Error, Event, GraphicsSetting, Phase, ProblemKind, Status, SyncMode, SyncOutcome, Tally,
 };
 
 /// For the commands without `--jobs`. Only `verify` runs a pool with it.
@@ -41,12 +41,20 @@ enum Command {
     Verify(Common),
     /// Run ZwiftApp.exe through $WINE (default `wine`) in $WINEPREFIX
     /// (default $XDG_DATA_HOME/zwift-wine). Writes the ANT+ and Bluetooth LE shims next to
-    /// it and starts the Bluetooth LE bridge for the game.
+    /// it, writes the graphics profile and starts the Bluetooth LE bridge for the game.
     Launch {
         #[command(flatten)]
         common: Common,
         #[arg(last = true)]
         extra: Vec<OsString>,
+    },
+    /// Show the graphics profile that `launch` writes, or set it. `auto` (the default) picks
+    /// the profile from a GPU test before each start.
+    Graphics {
+        #[command(flatten)]
+        common: Common,
+        /// auto, basic, medium, high or ultra.
+        setting: Option<GraphicsSetting>,
     },
     /// The Bluetooth LE bridge that `launch` starts.
     #[command(hide = true)]
@@ -146,7 +154,16 @@ fn run(command: Command, progress: &mut Progress) -> Result<ExitCode, Error> {
                 .unwrap_or_else(|| xdg_dir("XDG_DATA_HOME", ".local/share").join("zwift-wine"));
             let bootstrapper = open(&common, FIXED_JOBS)?;
             let ble_socket = start_ble_bridge();
-            match bootstrapper.launch(&wine, &wine_prefix, ble_socket.as_deref(), &extra)? {}
+            let on_event = &mut |event| progress.on_event(event);
+            match bootstrapper.launch(&wine, &wine_prefix, ble_socket.as_deref(), &extra, on_event)? {}
+        }
+        Command::Graphics { common, setting } => {
+            let bootstrapper = open(&common, FIXED_JOBS)?;
+            match setting {
+                Some(setting) => bootstrapper.set_graphics_setting(setting)?,
+                None => println!("{}", bootstrapper.graphics_setting()?),
+            }
+            Ok(ExitCode::SUCCESS)
         }
         Command::BleBridge { socket, parent } => match zwift_bootstrap::ble::serve(&socket, parent) {
             Ok(()) => Ok(ExitCode::SUCCESS),
@@ -320,6 +337,7 @@ impl Progress {
             }
             Event::Retry { path, attempt, cause } => self.note(&format!("retry {attempt} {path}: {cause}")),
             Event::Warning(text) => self.note(&format!("warning: {text}")),
+            Event::Graphics(choice) => self.note(&format!("graphics: {choice}")),
         }
     }
 

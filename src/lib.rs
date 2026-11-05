@@ -21,6 +21,7 @@
 //! - `parallel` the worker pool and the single progress owner
 //! - `sync`     `check` and `sync`: the pipeline and its commit order
 //! - `ble`      the Bluetooth LE bridge that the BleWin10Lib shim talks to
+//! - `graphics` the graphics profile that `launch` writes, and its setting
 //! - this file  the public surface, `verify`, `launch`
 
 pub mod ble;
@@ -42,7 +43,7 @@ use std::process::Command;
 
 use disk::{Inspection, LocalState, Pending};
 
-pub use graphics::{GpuTest, GraphicsSetting, Profile};
+pub use graphics::{GpuTest, GraphicsChoice, GraphicsSetting, Profile};
 pub use model::{Checksum, Crc32, PathRejection, RelPath, Version};
 
 pub const DEFAULT_BASE_URL: &str = "https://cdn.zwift.com/gameassets/Zwift_Updates_Root/";
@@ -151,6 +152,8 @@ pub enum Event {
     Retry { path: RelPath, attempt: u32, cause: String },
     /// Non-fatal (an extraneous file that would not delete).
     Warning(String),
+    /// From `launch`, once, before the game starts.
+    Graphics(GraphicsChoice),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,6 +235,7 @@ impl Bootstrapper {
             let kind = match inspection {
                 Inspection::Match | Inspection::LengthOnly => continue,
                 _ if is_shim(path, &file) => continue,
+                _ if graphics::is_swapped_profile(&manifest, path, &file) => continue,
                 Inspection::Missing => ProblemKind::Missing,
                 Inspection::WrongLength(actual) => ProblemKind::WrongLength { expected: entry.length, actual },
                 Inspection::WrongCrc { expected, actual } => ProblemKind::WrongCrc { expected, actual },
@@ -245,17 +249,19 @@ impl Bootstrapper {
     /// `$WINE .zwift-bootstrap/ZwiftLauncher.exe ZwiftApp.exe --launcher_version=1.2.0 EXTRA...`,
     /// working dir = install dir. The stub starts the game as its child. Prefers
     /// `ZwiftAppDev.exe` when present. Refuses when there is no valid install. Writes the
-    /// shims first. `ble_socket`: where `ble::serve` listens, passed to the game in
-    /// `BLE_SOCKET_ENV`. No `--token=`: with an empty value the game tries a token login with
-    /// no credentials and shows a login error at start.
+    /// shims and the graphics profile first, and reports the profile as `Event::Graphics`.
+    /// `ble_socket`: where `ble::serve` listens, passed to the game in `BLE_SOCKET_ENV`. No
+    /// `--token=`: with an empty value the game tries a token login with no credentials and
+    /// shows a login error at start.
     pub fn launch(
         &self,
         wine: &OsStr,
         wine_prefix: &Path,
         ble_socket: Option<&Path>,
         extra: &[OsString],
+        on_event: &mut dyn FnMut(Event),
     ) -> Result<Infallible, Error> {
-        match self.layout.load_local() {
+        let manifest = match self.layout.load_local() {
             LocalState::Empty { reason, .. } => return Err(self.not_installed(reason)),
             LocalState::Installed { ver_cur, .. } if ver_cur.version == Version::ZERO => {
                 return Err(self.not_installed("version 0.0.0 has no game files".into()));
@@ -263,10 +269,12 @@ impl Bootstrapper {
             LocalState::Installed { pending: Pending::Toward(_) | Pending::Unknown, .. } => {
                 return Err(self.not_installed("an update was interrupted".into()));
             }
-            LocalState::Installed { .. } => {}
-        }
+            LocalState::Installed { manifest, .. } => manifest,
+        };
         self.install_shims()?;
         let stub = self.install_launcher_stub()?;
+        let choice = graphics::prepare(&self.layout, &manifest, || Err("there is no GPU test yet".into()))?;
+        on_event(Event::Graphics(choice));
         let exe = if self.layout.install.join("ZwiftAppDev.exe").is_file() {
             "ZwiftAppDev.exe"
         } else {
@@ -308,6 +316,15 @@ impl Bootstrapper {
             self.layout.write_private_file(name, bytes).map_err(sync::io_error(&path))?;
         }
         Ok(path)
+    }
+
+    /// The setting that `launch` applies.
+    pub fn graphics_setting(&self) -> Result<GraphicsSetting, Error> {
+        graphics::read_setting(&self.layout)
+    }
+
+    pub fn set_graphics_setting(&self, setting: GraphicsSetting) -> Result<(), Error> {
+        graphics::write_setting(&self.layout, setting)
     }
 
     fn not_installed(&self, reason: String) -> Error {

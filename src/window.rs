@@ -79,7 +79,7 @@ impl Session<'_> {
                     match &event {
                         Event::Phase(p) => *phase = *p,
                         Event::Progress(t) => *tally = Some(*t),
-                        Event::Retry { .. } | Event::Warning(_) => {}
+                        Event::Retry { .. } | Event::Warning(_) | Event::Graphics(_) => {}
                     }
                 }
                 self.progress.on_event(event);
