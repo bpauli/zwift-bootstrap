@@ -22,10 +22,12 @@
 //! - `sync`     `check` and `sync`: the pipeline and its commit order
 //! - `ble`      the Bluetooth LE bridge that the BleWin10Lib shim talks to
 //! - `graphics` the graphics profile that `launch` writes, and its setting
+//! - `gpu_test` the OpenGL workload that `graphics` picks the profile from
 //! - this file  the public surface, `verify`, `launch`
 
 pub mod ble;
 mod disk;
+mod gpu_test;
 mod graphics;
 mod model;
 mod net;
@@ -273,7 +275,7 @@ impl Bootstrapper {
         };
         self.install_shims()?;
         let stub = self.install_launcher_stub()?;
-        let choice = graphics::prepare(&self.layout, &manifest, || Err("there is no GPU test yet".into()))?;
+        let choice = graphics::prepare(&self.layout, &manifest, gpu_test::run)?;
         on_event(Event::Graphics(choice));
         let exe = if self.layout.install.join("ZwiftAppDev.exe").is_file() {
             "ZwiftAppDev.exe"
