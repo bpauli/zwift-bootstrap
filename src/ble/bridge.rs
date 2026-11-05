@@ -71,21 +71,20 @@ async fn run(socket: &Path, parent: u32, mgmt: Option<OwnedFd>) -> Result<(), St
         _ => None,
     };
     let mgmt = Arc::new(tokio::sync::Mutex::new(mgmt));
-    let parent_gone = async {
+    let (parent_gone_tx, parent_gone) = watch::channel(false);
+    tokio::spawn(async move {
         while std::os::unix::process::parent_id() == parent {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
-    };
-    tokio::pin!(parent_gone);
+        parent_gone_tx.send_replace(true);
+    });
+    let mut gone = parent_gone.clone();
     loop {
         tokio::select! {
-            () = &mut parent_gone => break,
+            _ = gone.wait_for(|gone| *gone) => break,
             accepted = listener.accept() => {
                 let Ok((stream, _)) = accepted else { continue };
-                tokio::select! {
-                    () = &mut parent_gone => break,
-                    () = serve_game(stream, adapter.clone(), mgmt.clone()) => {}
-                }
+                serve_game(stream, adapter.clone(), mgmt.clone(), parent_gone.clone()).await;
             }
         }
     }
@@ -134,7 +133,13 @@ struct Bridge {
     scan_runs: Arc<watch::Sender<bool>>,
 }
 
-async fn serve_game(stream: UnixStream, adapter: Option<Adapter>, mgmt: Arc<tokio::sync::Mutex<Option<Mgmt>>>) {
+/// Returns when the game closes the socket or its process is gone, and only after it has
+/// disconnected every device: BlueZ keeps a connection after the bridge ends, and a connected
+/// sensor does not advertise, so the next game could not find it.
+async fn serve_game(
+    stream: UnixStream, adapter: Option<Adapter>, mgmt: Arc<tokio::sync::Mutex<Option<Mgmt>>>,
+    mut parent_gone: watch::Receiver<bool>,
+) {
     let (read, mut write) = stream.into_split();
     let (events, mut queue) = unbounded_channel::<Event>();
     let writer = tokio::spawn(async move {
@@ -147,7 +152,10 @@ async fn serve_game(stream: UnixStream, adapter: Option<Adapter>, mgmt: Arc<toki
     let Some(adapter) = adapter else {
         let _ = events.send(Event::Log("Bluetooth helper: no Bluetooth adapter".into()));
         let _ = events.send(Event::Radio(false));
-        drain(read).await;
+        tokio::select! {
+            () = drain(read) => {}
+            _ = parent_gone.wait_for(|gone| *gone) => {}
+        }
         writer.abort();
         return;
     };
@@ -156,7 +164,14 @@ async fn serve_game(stream: UnixStream, adapter: Option<Adapter>, mgmt: Arc<toki
     let radio = tokio::spawn(bridge.clone().watch_radio());
     let scan = tokio::spawn(bridge.clone().scan(scan_wake));
     let mut lines = BufReader::new(read).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
+    loop {
+        let line = tokio::select! {
+            line = lines.next_line() => line,
+            _ = parent_gone.wait_for(|gone| *gone) => break,
+        };
+        let Ok(Some(line)) = line else {
+            break;
+        };
         match parse_request(&line) {
             Ok(Request::Scan(specs)) => {
                 let mut state = bridge.state.lock().unwrap();
@@ -185,9 +200,7 @@ async fn serve_game(stream: UnixStream, adapter: Option<Adapter>, mgmt: Arc<toki
     scan.abort();
     radio.abort();
     let links: Vec<Link> = bridge.state.lock().unwrap().links.drain().map(|(_, link)| link).collect();
-    for link in links {
-        let _ = link.device.disconnect().await;
-    }
+    futures_util::future::join_all(links.iter().map(|link| link.device.disconnect())).await;
     writer.abort();
 }
 
@@ -328,16 +341,21 @@ impl Bridge {
             device.manufacturer_data().await.ok().flatten().unwrap_or_default().into_iter().collect();
         let service_data: Vec<(Uuid, Vec<u8>)> =
             device.service_data().await.ok().flatten().unwrap_or_default().into_iter().collect();
-        let services: Vec<usize> = {
+        let (services, first) = {
             let mut state = self.state.lock().unwrap();
-            state.names.insert(address, name.clone());
+            let first = state.names.insert(address, name.clone()).is_none();
             if state.links.contains_key(&address) {
                 return;
             }
-            state.request.iter().enumerate().filter(|(_, s)| uuids.contains(&s.uuid)).map(|(i, _)| i).collect()
+            let services: Vec<usize> =
+                state.request.iter().enumerate().filter(|(_, s)| uuids.contains(&s.uuid)).map(|(i, _)| i).collect();
+            (services, first)
         };
         if services.is_empty() {
             return;
+        }
+        if first {
+            self.log(format!("Bluetooth helper: found {name}"));
         }
         let sections = advertisement_sections(&name, &manufacturer, &service_data);
         self.send(Event::Advertisement { address, rssi, services, sections, name });
