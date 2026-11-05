@@ -27,6 +27,7 @@ thiserror = "2.0"
 bluer = { version = "0.17", features = ["bluetoothd"] }
 tokio = { version = "1", features = ["rt", "net", "io-util", "sync", "time", "macros"] }
 futures-util = "0.3"
+libc = "0.2"
 eframe = { version = "0.37", default-features = false, features = ["glow", "wayland", "x11", "default_fonts"] }
 # The GPU test of `launch`: EGL bindings, libEGL loaded at run time, OpenGL. Already in the
 # graph through eframe.
@@ -50,10 +51,12 @@ game files from the Zwift CDN with length and CRC-32 checks, and starts \
 ZwiftApp.exe with Wine."""
 section = "games"
 priority = "optional"
-depends = "$auto"
+depends = "$auto, libcap2-bin"
 suggests = "wine, libnotify-bin"
+maintainer-scripts = "debian/"
 assets = [
     ["target/release/zwift-bootstrap", "usr/bin/", "755"],
+    ["target/release/zwift-bootstrap-ble", "usr/bin/", "755"],
     ["contrib/zwift-start", "usr/bin/", "755"],
     ["contrib/zwift.desktop", "usr/share/applications/zwift-bootstrap.desktop", "644"],
     ["README.md", "usr/share/doc/zwift-bootstrap/README.md", "644"],

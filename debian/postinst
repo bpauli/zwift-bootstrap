@@ -1,0 +1,5 @@
+#!/bin/sh
+set -e
+if command -v setcap >/dev/null 2>&1; then
+    setcap cap_net_admin+ep /usr/bin/zwift-bootstrap-ble || echo "zwift-bootstrap: setcap failed, so Bluetooth LE connections use the preferred interval of the sensor" >&2
+fi

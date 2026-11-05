@@ -3,6 +3,7 @@
 //! AF_UNIX socket; the bridge does the Bluetooth work with BlueZ.
 
 mod bridge;
+mod mgmt;
 mod protocol;
 
 pub use bridge::serve;
