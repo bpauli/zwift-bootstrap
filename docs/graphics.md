@@ -118,4 +118,4 @@ A calculation from the rounded values in the tables can differ from these limits
 - The fixed part of 8.87 ms is probably the CPU work of this laptop. On a different CPU, the fixed part is different.
 - The limits for desktop computers with a dedicated GPU are not verified.
 
-If you use `auto`, please report the GPU test value that `launch` writes, your GPU and CPU, and the profile that works well for you. Use the issues of the GitHub project.
+If you use `auto`, please report the GPU test value that `launch` writes, your GPU and CPU, and the profile that works well for you. Use the [hardware report](https://github.com/bpauli/zwift-bootstrap/issues/new?template=hardware-report.yml) template.

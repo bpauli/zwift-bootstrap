@@ -1,0 +1,60 @@
+name: Hardware report
+description: Tell which GPU, trainer and sensors work with zwift-bootstrap on your computer.
+title: "Hardware report: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. Each report helps other users and sets better limits for the GPU test. Also send a report when everything works.
+  - type: input
+    id: version
+    attributes:
+      label: zwift-bootstrap version
+      description: The output of `zwift-bootstrap --version`.
+      placeholder: zwift-bootstrap 0.5.1
+    validations:
+      required: true
+  - type: input
+    id: distro
+    attributes:
+      label: Linux distribution and Wine version
+      description: For example the output of `wine --version`.
+      placeholder: Arch Linux, wine-11.0 (Staging)
+    validations:
+      required: true
+  - type: textarea
+    id: graphics
+    attributes:
+      label: Graphics
+      description: The `graphics:` line that `zwift-bootstrap launch` writes, your CPU, and the profile that works well for you. Add the frame rate during a ride if you know it.
+      placeholder: |
+        graphics: ultra (GPU test 6.87 ms on AMD Radeon 880M Graphics (radeonsi, ...))
+        CPU: (your CPU)
+        Profile that works well: ultra, about 60 FPS
+  - type: textarea
+    id: ble
+    attributes:
+      label: Bluetooth LE sensors
+      description: Trainers and sensors, what works, and the time to connect in the pairing screen.
+      placeholder: |
+        Wahoo KICKR: power and trainer control work, connects in about 5 s
+  - type: textarea
+    id: ant
+    attributes:
+      label: ANT+ stick and sensors
+      placeholder: |
+        Dynastream ANT USBStick2 with a Garmin heart rate strap: works
+  - type: dropdown
+    id: video
+    attributes:
+      label: Video routes
+      description: See "Video routes" in the README.
+      options:
+        - Not tried
+        - Work
+        - Do not work
+  - type: textarea
+    id: problems
+    attributes:
+      label: Problems
+      description: What does not work. Add the lines from `~/Documents/Zwift/Logs/Log.txt` that show the problem.

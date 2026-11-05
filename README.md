@@ -12,6 +12,13 @@ This is an unofficial project. It is not made, supported or approved by Zwift, I
 - **Start the game.** Runs `ZwiftApp.exe` through Wine from the install directory. The game shows its own login screen.
 - **Check the files.** `verify` compares every installed file with the manifest.
 
+## Why not Lutris, Bottles or Docker?
+
+- **No Windows launcher.** The other ways install the Zwift Windows launcher in Wine. The launcher needs .NET and WebView2 in the Wine prefix, and these installs often fail. zwift-bootstrap gets the game files directly from the Zwift CDN.
+- **Bluetooth LE sensors in the game.** Wine cannot run the Bluetooth LE library of the game. zwift-bootstrap connects your trainer and sensors through BlueZ, from the pairing screen of the game. You do not need the Zwift Companion app as a bridge.
+- **ANT+ USB sticks.** Wine has no driver for ANT sticks. zwift-bootstrap sends the ANT+ traffic through the Linux serial device of the stick.
+- **No container.** Wine runs on your system, with your GPU driver and tools such as `gamemoderun` and MangoHud.
+
 ## Requirements
 
 - Linux on x86_64.
@@ -110,7 +117,7 @@ zwift-bootstrap graphics high    # or basic, medium, ultra
 
 To use the GPU test again, run `zwift-bootstrap graphics auto`. `zwift-bootstrap graphics` without a value shows the setting.
 
-`launch` writes the selected profile into all four profile files in `data/configs/`, and keeps copies of the original files in `.zwift-bootstrap/profiles/`. `verify` accepts the changed profile files. If the GPU test fails, the game selects the profile. The limits of the test come from one laptop. Please report the GPU test value and the profile that works well on your computer. See [docs/graphics.md](docs/graphics.md) for the details.
+`launch` writes the selected profile into all four profile files in `data/configs/`, and keeps copies of the original files in `.zwift-bootstrap/profiles/`. `verify` accepts the changed profile files. If the GPU test fails, the game selects the profile. The limits of the test come from one laptop. Please send a [hardware report](https://github.com/bpauli/zwift-bootstrap/issues/new?template=hardware-report.yml) with the GPU test value and the profile that works well on your computer. See [docs/graphics.md](docs/graphics.md) for the details.
 
 ## Graphics tips
 
@@ -174,6 +181,8 @@ Without the capability, the helper writes `no CAP_NET_ADMIN` into the log of the
 Tested with a Wahoo KICKR (power and smart trainer control), a Wahoo cadence sensor and a Garmin HRM-Pro Plus.
 
 ## Not tested
+
+If you use one of these, please send a [hardware report](https://github.com/bpauli/zwift-bootstrap/issues/new?template=hardware-report.yml), also when everything works.
 
 - Bluetooth LE sensors and trainers other than the ones above.
 - ANT+ sticks other than the ANT USBStick2.

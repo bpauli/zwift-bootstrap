@@ -4,6 +4,11 @@ All notable changes to zwift-bootstrap are in this file. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- A "Hardware report" issue template for the GPU, the sensors and the ANT+ stick that work on a computer. The README and `docs/graphics.md` link to it.
+- The README tells why zwift-bootstrap is different from Lutris, Bottles and Docker.
+
 ## [0.5.1] - 2026-11-05
 
 ### Changed
