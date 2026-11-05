@@ -4,6 +4,8 @@ All notable changes to zwift-bootstrap are in this file. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-05
+
 ### Added
 
 - This changelog.
@@ -82,7 +84,8 @@ All notable changes to zwift-bootstrap are in this file. The format follows [Kee
 - The `zwift-start` script and a desktop entry.
 - Release builds for linux_amd64 and an AUR package.
 
-[Unreleased]: https://github.com/bpauli/zwift-bootstrap/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/bpauli/zwift-bootstrap/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/bpauli/zwift-bootstrap/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/bpauli/zwift-bootstrap/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/bpauli/zwift-bootstrap/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/bpauli/zwift-bootstrap/compare/v0.3.0...v0.3.1
