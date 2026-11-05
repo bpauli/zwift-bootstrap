@@ -84,14 +84,14 @@ struct State {
     links: HashMap<Address, Link>,
 }
 
-/// A device the game asked to pair, from the first connect attempt until it is gone.
+/// A device the game asked to pair, from the connect attempt until the game unpairs it or
+/// the connection ends. Dropping it aborts the connect attempt and every later task, so a
+/// device the game unpaired never reports a late connect.
 struct Link {
     device: Device,
     name: String,
     /// Characteristics found at connect time, for writes.
     chars: Vec<(Uuid, Characteristic, WriteOp)>,
-    /// Set before a disconnect the game asked for.
-    closing: bool,
     tasks: Vec<JoinHandle<()>>,
 }
 
@@ -143,7 +143,7 @@ async fn serve_game(stream: UnixStream, adapter: Option<Adapter>) {
                 let State { names, links, .. } = &mut *state;
                 names.retain(|address, _| links.contains_key(address));
             }
-            Ok(Request::Pair(address)) => drop(tokio::spawn(bridge.clone().pair(address))),
+            Ok(Request::Pair(address)) => bridge.pair(address),
             Ok(Request::Unpair(address)) => bridge.unpair(address).await,
             Ok(Request::Write { address, characteristic, data }) => {
                 drop(tokio::spawn(bridge.clone().write(address, characteristic, data)));
@@ -281,24 +281,25 @@ impl Bridge {
         self.send(Event::Advertisement { address, rssi, services, sections, name });
     }
 
-    async fn pair(self, address: Address) {
+    /// Inserts the link and starts its connect attempt, which the link owns.
+    fn pair(&self, address: Address) {
         let Ok(device) = self.adapter.device(address) else {
             return;
         };
-        let name = {
-            let mut state = self.state.lock().unwrap();
-            let Some(name) = state.names.get(&address).cloned() else {
-                drop(state);
-                return self.log(format!("Bluetooth helper: pair {address}: never seen in a scan"));
-            };
-            if state.links.contains_key(&address) {
-                return;
-            }
-            let link =
-                Link { device: device.clone(), name: name.clone(), chars: vec![], closing: false, tasks: vec![] };
-            state.links.insert(address, link);
-            name
+        let mut state = self.state.lock().unwrap();
+        let Some(name) = state.names.get(&address).cloned() else {
+            drop(state);
+            return self.log(format!("Bluetooth helper: pair {address}: never seen in a scan"));
         };
+        if state.links.contains_key(&address) {
+            return;
+        }
+        let connect = tokio::spawn(self.clone().connect_link(device.clone(), name.clone()));
+        state.links.insert(address, Link { device, name, chars: vec![], tasks: vec![connect] });
+    }
+
+    async fn connect_link(self, device: Device, name: String) {
+        let address = device.address();
         self.log(format!("Bluetooth helper: connecting {name}"));
         match self.connect(&device, &name).await {
             Ok(()) => {
@@ -310,9 +311,11 @@ impl Bridge {
             }
             Err(e) => {
                 self.log(format!("Bluetooth helper: connect {name}: {e}"));
-                self.state.lock().unwrap().links.remove(&address);
                 let _ = device.disconnect().await;
                 self.send(Event::Disconnected { address, unexpected: false, name });
+                // Last: dropping the link aborts this task at its next await.
+                let link = self.state.lock().unwrap().links.remove(&address);
+                drop(link);
             }
         }
     }
@@ -421,28 +424,23 @@ impl Bridge {
         let link = self.state.lock().unwrap().links.remove(&address);
         if let Some(link) = link {
             self.log(format!("Bluetooth helper: disconnected {}", link.name));
-            let (unexpected, name) = (!link.closing, link.name.clone());
             // Dropping the link aborts this task too; send first.
-            self.send(Event::Disconnected { address, unexpected, name });
+            self.send(Event::Disconnected { address, unexpected: true, name: link.name.clone() });
             drop(link);
         }
     }
 
+    /// Removes the link first, which ends its connect attempt or its watcher, so that
+    /// nothing reports for the device after this.
     async fn unpair(&self, address: Address) {
-        let device = {
-            let mut state = self.state.lock().unwrap();
-            let Some(link) = state.links.get_mut(&address) else {
-                return;
-            };
-            link.closing = true;
-            link.device.clone()
+        let link = self.state.lock().unwrap().links.remove(&address);
+        let Some(link) = link else {
+            return;
         };
-        if device.disconnect().await.is_err() || !device.is_connected().await.unwrap_or(false) {
-            let link = self.state.lock().unwrap().links.remove(&address);
-            if let Some(link) = link {
-                self.send(Event::Disconnected { address, unexpected: false, name: link.name.clone() });
-            }
-        }
+        let (device, name) = (link.device.clone(), link.name.clone());
+        drop(link);
+        let _ = device.disconnect().await;
+        self.send(Event::Disconnected { address, unexpected: false, name });
     }
 
     async fn write(self, address: Address, characteristic: Uuid, data: Vec<u8>) {
