@@ -14,6 +14,7 @@ use futures_util::StreamExt;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+use tokio::sync::watch;
 use tokio::task::{JoinHandle, JoinSet};
 
 use super::mgmt::{self, Mgmt};
@@ -106,6 +107,7 @@ struct State {
     request: Vec<ServiceSpec>,
     names: HashMap<Address, String>,
     links: HashMap<Address, Link>,
+    scan_wanted: bool,
 }
 
 struct Link {
@@ -113,6 +115,7 @@ struct Link {
     name: String,
     /// Characteristics found at connect time, for writes.
     chars: Vec<(Uuid, Characteristic, WriteOp)>,
+    connected: bool,
     cancel_on_drop: Vec<JoinHandle<()>>,
 }
 
@@ -128,6 +131,7 @@ struct Bridge {
     state: Arc<Mutex<State>>,
     events: UnboundedSender<Event>,
     mgmt: Arc<tokio::sync::Mutex<Option<Mgmt>>>,
+    scan_runs: Arc<watch::Sender<bool>>,
 }
 
 async fn serve_game(stream: UnixStream, adapter: Option<Adapter>, mgmt: Arc<tokio::sync::Mutex<Option<Mgmt>>>) {
@@ -147,19 +151,24 @@ async fn serve_game(stream: UnixStream, adapter: Option<Adapter>, mgmt: Arc<toki
         writer.abort();
         return;
     };
-    let bridge = Bridge { adapter, state: Arc::default(), events, mgmt };
+    let (scan_runs, scan_wake) = watch::channel(false);
+    let bridge = Bridge { adapter, state: Arc::default(), events, mgmt, scan_runs: Arc::new(scan_runs) };
     let radio = tokio::spawn(bridge.clone().watch_radio());
-    let mut scan: Option<JoinHandle<()>> = None;
+    let scan = tokio::spawn(bridge.clone().scan(scan_wake));
     let mut lines = BufReader::new(read).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         match parse_request(&line) {
             Ok(Request::Scan(specs)) => {
-                bridge.state.lock().unwrap().request = specs;
-                if scan.as_ref().is_none_or(JoinHandle::is_finished) {
-                    scan = Some(tokio::spawn(bridge.clone().scan()));
-                }
+                let mut state = bridge.state.lock().unwrap();
+                state.request = specs;
+                state.scan_wanted = true;
+                bridge.sync_scan(&state);
             }
-            Ok(Request::Stop) => scan.take().iter().for_each(JoinHandle::abort),
+            Ok(Request::Stop) => {
+                let mut state = bridge.state.lock().unwrap();
+                state.scan_wanted = false;
+                bridge.sync_scan(&state);
+            }
             Ok(Request::Purge) => {
                 let mut state = bridge.state.lock().unwrap();
                 let State { names, links, .. } = &mut *state;
@@ -173,7 +182,7 @@ async fn serve_game(stream: UnixStream, adapter: Option<Adapter>, mgmt: Arc<toki
             Err(e) => bridge.log(format!("Bluetooth helper: {e}")),
         }
     }
-    scan.iter().for_each(JoinHandle::abort);
+    scan.abort();
     radio.abort();
     let links: Vec<Link> = bridge.state.lock().unwrap().links.drain().map(|(_, link)| link).collect();
     for link in links {
@@ -210,8 +219,54 @@ impl Bridge {
         }
     }
 
-    /// Discovery runs while this task lives; aborting it drops the stream and BlueZ stops.
-    async fn scan(self) {
+    /// A running scan slows down a connection: in a test, the service discovery of a KICKR
+    /// took 10 s in place of 2 s. So the scan pauses while a device connects.
+    fn sync_scan(&self, state: &State) {
+        self.scan_runs.send_replace(state.scan_wanted && state.links.values().all(|link| link.connected));
+    }
+
+    /// Never aborted during a BlueZ call: an abort in StartDiscovery leaves the discovery
+    /// on, with no session that can stop it, and each later start fails with InProgress.
+    async fn scan(self, mut runs: watch::Receiver<bool>) {
+        while runs.wait_for(|run| *run).await.is_ok() {
+            let Some(discovery) = self.start_discovery().await else {
+                if runs.changed().await.is_err() {
+                    return;
+                }
+                continue;
+            };
+            {
+                tokio::pin!(discovery);
+                // BlueZ removes a device it has not seen for a while and adds it again on its next
+                // advertisement: the watcher of the removed device gets no more events.
+                let mut watched = HashMap::new();
+                let mut watchers = JoinSet::new();
+                loop {
+                    let event = tokio::select! {
+                        event = discovery.next() => event,
+                        _ = runs.wait_for(|run| !*run) => None,
+                    };
+                    match event {
+                        None => break,
+                        Some(AdapterEvent::DeviceAdded(address)) if !watched.contains_key(&address) => {
+                            watched.insert(address, watchers.spawn(self.clone().watch_advertisements(address)));
+                        }
+                        Some(AdapterEvent::DeviceRemoved(address)) => {
+                            if let Some(watcher) = watched.remove(&address) {
+                                watcher.abort();
+                            }
+                        }
+                        Some(_) => {}
+                    }
+                }
+            }
+            // BlueZ can end a discovery that the game still wants, for example when the adapter
+            // turns off.
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
+
+    async fn start_discovery(&self) -> Option<impl futures_util::Stream<Item = AdapterEvent> + use<>> {
         let filter = bluer::DiscoveryFilter {
             transport: bluer::DiscoveryTransport::Le,
             duplicate_data: true,
@@ -220,26 +275,11 @@ impl Bridge {
         if let Err(e) = self.adapter.set_discovery_filter(filter).await {
             self.log(format!("Bluetooth helper: discovery filter: {e}"));
         }
-        let discovery = match self.adapter.discover_devices_with_changes().await {
-            Ok(discovery) => discovery,
-            Err(e) => return self.log(format!("Bluetooth helper: cannot scan: {e}")),
-        };
-        tokio::pin!(discovery);
-        // BlueZ removes a device it has not seen for a while and adds it again on its next
-        // advertisement: the watcher of the removed device gets no more events.
-        let mut watched = HashMap::new();
-        let mut watchers = JoinSet::new();
-        while let Some(event) = discovery.next().await {
-            match event {
-                AdapterEvent::DeviceAdded(address) if !watched.contains_key(&address) => {
-                    watched.insert(address, watchers.spawn(self.clone().watch_advertisements(address)));
-                }
-                AdapterEvent::DeviceRemoved(address) => {
-                    if let Some(watcher) = watched.remove(&address) {
-                        watcher.abort();
-                    }
-                }
-                _ => {}
+        match self.adapter.discover_devices_with_changes().await {
+            Ok(discovery) => Some(discovery),
+            Err(e) => {
+                self.log(format!("Bluetooth helper: cannot scan: {e}"));
+                None
             }
         }
     }
@@ -316,7 +356,9 @@ impl Bridge {
             return;
         }
         let connect = tokio::spawn(self.clone().connect_link(device.clone(), name.clone()));
-        state.links.insert(address, Link { device, name, chars: vec![], cancel_on_drop: vec![connect] });
+        let link = Link { device, name, chars: vec![], connected: false, cancel_on_drop: vec![connect] };
+        state.links.insert(address, link);
+        self.sync_scan(&state);
     }
 
     async fn connect_link(self, device: Device, name: String) {
@@ -334,7 +376,10 @@ impl Bridge {
                 self.log(format!("Bluetooth helper: connect {name}: {e}"));
                 let _ = device.disconnect().await;
                 self.send(Event::Disconnected { address, unexpected: false, name });
-                let link = self.state.lock().unwrap().links.remove(&address);
+                let mut state = self.state.lock().unwrap();
+                let link = state.links.remove(&address);
+                self.sync_scan(&state);
+                drop(state);
                 drop(link);
             }
         }
@@ -419,7 +464,9 @@ impl Bridge {
                 return Err("unpaired while connecting".into());
             };
             link.chars = chars;
+            link.connected = true;
             link.cancel_on_drop.extend(tasks);
+            self.sync_scan(&state);
         }
         self.send(Event::Connected { address, matched, name: name.to_owned() });
         self.log(format!("Bluetooth helper: connected {name}"));
@@ -475,7 +522,12 @@ impl Bridge {
     }
 
     async fn unpair(&self, address: Address) {
-        let link = self.state.lock().unwrap().links.remove(&address);
+        let link = {
+            let mut state = self.state.lock().unwrap();
+            let link = state.links.remove(&address);
+            self.sync_scan(&state);
+            link
+        };
         let Some(link) = link else {
             return;
         };
