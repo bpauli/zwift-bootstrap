@@ -11,12 +11,13 @@ All notable changes to zwift-bootstrap are in this file. The format follows [Kee
 
 ### Changed
 
-- Bluetooth LE sensors connect faster. The helper asks the kernel for a connection interval of 30 ms to 50 ms before each connection, in place of the interval that the sensor prefers. A Wahoo KICKR connects in about 4 s in place of 25 s. The helper needs the file capability `cap_net_admin+ep` for this. The `.deb` package sets it at install and depends on `libcap2-bin`. For the tarball and a source build, see the README, "Bluetooth LE sensors". Without the capability, the helper writes `no CAP_NET_ADMIN` into the log of the game once and connects as before.
+- Bluetooth LE sensors connect faster. The helper asks the kernel for a connection interval of 30 ms to 50 ms before each connection, in place of the interval that the sensor prefers. The helper also pauses its scan while a sensor connects, because the game scans during the whole pairing screen and a running scan makes a connection about 5 times slower. In the game, a Wahoo KICKR connected in 5 s in place of about 25 s, and a Wahoo cadence sensor in 2 s in place of about 60 s. The helper needs the file capability `cap_net_admin+ep` for this. The `.deb` package sets it at install and depends on `libcap2-bin`. For the tarball and a source build, see the README, "Bluetooth LE sensors". Without the capability, the helper writes `no CAP_NET_ADMIN` into the log of the game once and connects as before.
 - The Bluetooth LE helper is its own binary, `zwift-bootstrap-ble`. The package and the tarball install it next to `zwift-bootstrap`, and `launch` starts it from there. The capability is on this file only, so that the environment of `launch` reaches Wine unchanged.
 
 ### Fixed
 
 - The Bluetooth LE helper no longer reports a sensor as connected after the game unpaired it while the connection was in progress. The game showed such a sensor with "No Signal".
+- The Bluetooth LE helper disconnects all sensors before it ends. Before, a sensor sometimes stayed connected after the game closed. A connected sensor does not advertise, so the next game session did not find it.
 
 ## [0.4.1] - 2026-11-04
 
