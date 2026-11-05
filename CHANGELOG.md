@@ -7,6 +7,7 @@ All notable changes to zwift-bootstrap are in this file. The format follows [Kee
 ### Added
 
 - This changelog.
+- `launch` selects the graphics profile of the game from a GPU test of about one second before each start, because the GPU table of Zwift gives many current GPUs the basic profile. It writes the selected profile into the four profile files in `data/configs/` and writes one `graphics:` line on stderr. `zwift-bootstrap graphics <profile>` sets a fixed profile, and `zwift-bootstrap graphics auto` uses the GPU test again. `verify` accepts the changed profile files. See `docs/graphics.md`.
 
 ## [0.4.1] - 2026-11-04
 

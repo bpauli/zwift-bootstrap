@@ -49,6 +49,7 @@ zwift-bootstrap install    # first install, about 4.8 GiB
 zwift-bootstrap update     # bring an install to the server version
 zwift-bootstrap verify     # check all files, exit 1 on a problem
 zwift-bootstrap launch     # start the game with Wine
+zwift-bootstrap graphics   # show or set the graphics profile
 ```
 
 Options:
@@ -90,18 +91,29 @@ install -m644 contrib/zwift.desktop ~/.local/share/applications/zwift.desktop
 
 The desktop entry uses a generic icon. You can set `Icon=` to an image of your choice.
 
+## Graphics profile
+
+Zwift selects its graphics profile (basic, medium, high or ultra) from a table of GPU names. The table does not know many current GPUs, and an unknown GPU gets basic. So before each start, `launch` runs a GPU test of about one second and selects the profile from the result. The result changes with the power state of a laptop, for example on battery.
+
+`launch` writes the result on stderr:
+
+```text
+graphics: ultra (GPU test 6.87 ms on AMD Radeon 880M Graphics (radeonsi, ...))
+```
+
+To always use one profile and skip the test:
+
+```sh
+zwift-bootstrap graphics high    # or basic, medium, ultra
+```
+
+To use the GPU test again, run `zwift-bootstrap graphics auto`. `zwift-bootstrap graphics` without a value shows the setting.
+
+`launch` writes the selected profile into all four profile files in `data/configs/`, and keeps copies of the original files in `.zwift-bootstrap/profiles/`. `verify` accepts the changed profile files. If the GPU test fails, the game selects the profile. The limits of the test come from one laptop. Please report the GPU test value and the profile that works well on your computer. See [docs/graphics.md](docs/graphics.md) for the details.
+
 ## Graphics tips
 
 - **Laptop battery saver.** On battery, Zwift limits the frame rate to about 20 FPS. Switch off the battery saver in the Zwift settings, or connect the charger.
-- **Unknown GPU.** When Zwift does not know your GPU, it uses its basic profile at 1024x576. To force better settings, copy one of the profiles over the basic profile in the install directory:
-
-  ```sh
-  cd ~/.local/share/zwift/data/configs
-  cp basic.txt basic.txt.orig
-  cp ultra.txt basic.txt    # or high.txt or medium.txt
-  ```
-
-  After this change, `verify` reports `basic.txt` as changed. A game update can restore the original file.
 
 ## Video routes
 
@@ -151,7 +163,7 @@ Tested with a Wahoo KICKR (power and smart trainer control), a Wahoo cadence sen
 - Bluetooth LE sensors and trainers other than the ones above.
 - ANT+ sticks other than the ANT USBStick2.
 - Riding a video route. Only the decoding check after the login is tested, on an AMD Radeon 880M with the Vulkan renderer.
-- Frame rate during a ride on hardware other than an AMD Radeon 880M.
+- Frame rate during a ride on hardware other than an AMD Radeon 880M. The limits of the GPU test come from this GPU only.
 
 ## How it works
 
