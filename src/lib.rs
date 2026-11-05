@@ -25,6 +25,7 @@
 
 pub mod ble;
 mod disk;
+mod graphics;
 mod model;
 mod net;
 mod parallel;
@@ -41,6 +42,7 @@ use std::process::Command;
 
 use disk::{Inspection, LocalState, Pending};
 
+pub use graphics::{GpuTest, GraphicsSetting, Profile};
 pub use model::{Checksum, Crc32, PathRejection, RelPath, Version};
 
 pub const DEFAULT_BASE_URL: &str = "https://cdn.zwift.com/gameassets/Zwift_Updates_Root/";
