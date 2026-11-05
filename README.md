@@ -37,7 +37,7 @@ sudo apt update
 sudo apt install zwift-bootstrap
 ```
 
-Each release also has the `.deb` file and the binary as a `.tar.gz` file on its GitHub release page. The binary needs the D-Bus library (`libdbus-1`), which most desktops already have.
+Each release also has the `.deb` file and the binaries as a `.tar.gz` file on its GitHub release page. Put `zwift-bootstrap` and the Bluetooth LE helper `zwift-bootstrap-ble` into the same directory, and see "Bluetooth LE sensors" for the capability of the helper. The binaries need the D-Bus library (`libdbus-1`), which most desktops already have.
 
 To build from source, see [docs/building.md](docs/building.md).
 
@@ -149,12 +149,26 @@ Tested with a Dynastream ANT USBStick2 and a Garmin heart rate strap.
 
 ## Bluetooth LE sensors
 
-Wine cannot run the Bluetooth LE library of the game (`BleWin10Lib.dll`). So `launch` replaces `BleWin10Lib.dll` and `BleWin10Lib_fallback.dll` in the install directory with its own DLL, and starts a helper process (`zwift-bootstrap ble-bridge`). The DLL sends the Bluetooth LE requests of the game to the helper, and the helper does the Bluetooth work through BlueZ. The helper stops when the game stops. `verify` accepts the replaced files. A game update can restore the original files, and the next `launch` replaces them again.
+Wine cannot run the Bluetooth LE library of the game (`BleWin10Lib.dll`). So `launch` replaces `BleWin10Lib.dll` and `BleWin10Lib_fallback.dll` in the install directory with its own DLL, and starts a helper process (`zwift-bootstrap-ble`, installed next to `zwift-bootstrap`). The DLL sends the Bluetooth LE requests of the game to the helper, and the helper does the Bluetooth work through BlueZ. The helper stops when the game stops. `verify` accepts the replaced files. A game update can restore the original files, and the next `launch` replaces them again.
 
 1. Make sure that BlueZ runs and that the Bluetooth adapter is on: `bluetoothctl show` must show `Powered: yes`.
 2. Start the game with `zwift-bootstrap launch` and pair the sensors in the pairing screen. You do not have to pair the sensors in Linux first.
 
-The helper listens on `$XDG_RUNTIME_DIR/zwift-bootstrap-ble.sock`. If `XDG_RUNTIME_DIR` is not set, the game starts without Bluetooth LE.
+The helper listens on `$XDG_RUNTIME_DIR/zwift-bootstrap-ble.sock`. If `XDG_RUNTIME_DIR` is not set, or `zwift-bootstrap-ble` is not next to `zwift-bootstrap`, the game starts without Bluetooth LE, and `launch` writes one warning line.
+
+### The CAP_NET_ADMIN capability
+
+The `.deb` package gives `/usr/bin/zwift-bootstrap-ble` the file capability `cap_net_admin+ep`. With it, the helper asks the kernel for a fast connection interval (30 ms to 50 ms) before each connection to a sensor. Without it, the kernel uses the interval that the sensor prefers, and the service discovery after the connection is slow: a Wahoo KICKR (180 ms) connects in about 25 s and a Wahoo cadence sensor (990 ms) in about 60 s, in place of about 4 s. BlueZ has no D-Bus API for the connection interval, so the helper sends the request on the Bluetooth management socket of the kernel, which accepts it only from a process with `CAP_NET_ADMIN`.
+
+`CAP_NET_ADMIN` lets a process change the network configuration of the system, for example the interfaces, the routes and the Bluetooth controllers. To keep its use small, the helper drops the capability as soon as it has opened the kernel socket. The helper is a separate file because a binary with a file capability runs in secure mode, where glibc removes `LD_PRELOAD`, `LD_LIBRARY_PATH` and `TMPDIR` from the environment, and `zwift-bootstrap launch` must pass these on to Wine for tools such as `gamemoderun` and MangoHud. The game runs without the capability.
+
+If you use the tarball or a source build, set the capability yourself:
+
+```sh
+sudo setcap cap_net_admin+ep "$(command -v zwift-bootstrap-ble)"
+```
+
+Without the capability, the helper writes `no CAP_NET_ADMIN` into the log of the game once, and the sensors connect at their preferred interval.
 
 Tested with a Wahoo KICKR (power and smart trainer control), a Wahoo cadence sensor and a Garmin HRM-Pro Plus.
 

@@ -53,10 +53,13 @@ game files from the Zwift CDN with length and CRC-32 checks, and starts \
 ZwiftApp.exe with Wine."""
 section = "games"
 priority = "optional"
-depends = "$auto"
+# libcap2-bin: setcap in debian/postinst.
+depends = "$auto, libcap2-bin"
 suggests = "wine, libnotify-bin"
+maintainer-scripts = "debian/"
 assets = [
     ["target/release/zwift-bootstrap", "usr/bin/", "755"],
+    ["target/release/zwift-bootstrap-ble", "usr/bin/", "755"],
     ["contrib/zwift-start", "usr/bin/", "755"],
     ["contrib/zwift.desktop", "usr/share/applications/zwift-bootstrap.desktop", "644"],
     ["README.md", "usr/share/doc/zwift-bootstrap/README.md", "644"],

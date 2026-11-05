@@ -28,7 +28,11 @@ If the Rust package of your release is older than 1.95, install Rust with [rustu
 cargo install --path .
 ```
 
-This puts `zwift-bootstrap` in `~/.cargo/bin`.
+This puts `zwift-bootstrap` and the Bluetooth LE helper `zwift-bootstrap-ble` in `~/.cargo/bin`. Give the helper its capability, see the README, "Bluetooth LE sensors":
+
+```sh
+sudo setcap cap_net_admin+ep ~/.cargo/bin/zwift-bootstrap-ble
+```
 
 ## Run the tests
 
