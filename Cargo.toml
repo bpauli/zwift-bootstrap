@@ -59,5 +59,6 @@ assets = [
     ["target/release/zwift-bootstrap-ble", "usr/bin/", "755"],
     ["contrib/zwift-start", "usr/bin/", "755"],
     ["contrib/zwift.desktop", "usr/share/applications/zwift-bootstrap.desktop", "644"],
+    ["contrib/zwift.png", "usr/share/icons/hicolor/192x192/apps/zwift-bootstrap.png", "644"],
     ["README.md", "usr/share/doc/zwift-bootstrap/README.md", "644"],
 ]

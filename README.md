@@ -87,9 +87,10 @@ The first start downloads about 4.8 GiB before the game opens. During the downlo
 ```sh
 install -m755 contrib/zwift-start ~/.local/bin/zwift-start
 install -m644 contrib/zwift.desktop ~/.local/share/applications/zwift.desktop
+install -Dm644 contrib/zwift.png ~/.local/share/icons/hicolor/192x192/apps/zwift-bootstrap.png
 ```
 
-The desktop entry uses a generic icon. You can set `Icon=` to an image of your choice.
+The desktop entry uses the Zwift icon from zwift.com.
 
 ## Graphics profile
 

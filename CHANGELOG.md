@@ -4,6 +4,10 @@ All notable changes to zwift-bootstrap are in this file. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- The desktop entry shows the Zwift icon from zwift.com in place of a generic game icon. The `.deb` package and the tarball include the icon as `zwift.png`.
+
 ## [0.5.0] - 2026-11-05
 
 ### Added

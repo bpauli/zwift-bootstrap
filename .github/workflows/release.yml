@@ -45,7 +45,7 @@ jobs:
           name="zwift-bootstrap_${VERSION}_linux_amd64"
           mkdir -p "dist/contrib"
           cp target/release/zwift-bootstrap target/release/zwift-bootstrap-ble README.md LICENSE-MIT LICENSE-APACHE dist/
-          cp contrib/zwift-start contrib/zwift.desktop dist/contrib/
+          cp contrib/zwift-start contrib/zwift.desktop contrib/zwift.png dist/contrib/
           tar czf "${name}.tar.gz" -C dist .
           cp target/debian/zwift-bootstrap_*_amd64.deb .
           dpkg-deb --field zwift-bootstrap_*_amd64.deb Depends
