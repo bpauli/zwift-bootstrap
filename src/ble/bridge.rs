@@ -19,6 +19,7 @@ use tokio::task::{JoinHandle, JoinSet};
 use super::mgmt::{self, Mgmt};
 use super::protocol::{Event, Request, ServiceSpec, advertisement_sections, parse_request};
 
+const SLOW_INTERVAL: &str = "so connections use the preferred interval of the sensor";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// BlueZ discovers all services before it reports them. A sensor that asks for a long
 /// connection interval (an HRM-Pro Plus asks for 240 ms) needs more than 10 s for that;
@@ -31,8 +32,7 @@ pub fn serve(socket: &Path, parent: u32) -> Result<(), String> {
     let mgmt = match mgmt::open() {
         Ok(fd) => Some(fd),
         Err(e) => {
-            let fallback = "so connections use the preferred interval of the sensor";
-            eprintln!("ble-bridge: cannot open the Bluetooth management socket ({e}), {fallback}");
+            eprintln!("ble-bridge: cannot open the Bluetooth management socket ({e}), {SLOW_INTERVAL}");
             None
         }
     };
@@ -454,8 +454,7 @@ impl Bridge {
         match socket.load_connection_parameters(device.address(), address_type).await {
             Ok(()) => {}
             Err(mgmt::Error::PermissionDenied) => {
-                let fallback = "so connections use the preferred interval of the sensor";
-                self.log(format!("Bluetooth helper: no CAP_NET_ADMIN, {fallback}"));
+                self.log(format!("Bluetooth helper: no CAP_NET_ADMIN, {SLOW_INTERVAL}"));
                 *mgmt = None;
             }
             Err(mgmt::Error::Other(e)) => self.log(format!("Bluetooth helper: connection interval for {name}: {e}")),
