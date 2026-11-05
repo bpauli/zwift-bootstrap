@@ -1,7 +1,7 @@
 //! The Bluetooth management socket of the kernel (MGMT), for one command: Load Connection
 //! Parameters, which sets the LE connection interval the kernel asks a device for. BlueZ
 //! has no D-Bus API for it. The kernel accepts the command only on a socket that a process
-//! with CAP_NET_ADMIN bound.
+//! with CAP_NET_ADMIN bound. Also the drop of that capability once the socket is bound.
 
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -48,6 +48,34 @@ pub(crate) fn open() -> io::Result<OwnedFd> {
         return Err(io::Error::last_os_error());
     }
     Ok(fd)
+}
+
+const LINUX_CAPABILITY_VERSION_3: u32 = 0x2008_0522;
+
+#[repr(C)]
+struct CapHeader {
+    version: u32,
+    pid: i32,
+}
+
+#[repr(C)]
+struct CapData {
+    effective: u32,
+    permitted: u32,
+    inheritable: u32,
+}
+
+/// Clears the permitted, effective and inheritable capability sets of this process. The
+/// packages give the bridge binary cap_net_admin+ep; after the bind of the management
+/// socket it has no more use for it.
+pub(crate) fn drop_capabilities() -> io::Result<()> {
+    let header = CapHeader { version: LINUX_CAPABILITY_VERSION_3, pid: 0 };
+    let none = || CapData { effective: 0, permitted: 0, inheritable: 0 };
+    let data = [none(), none()];
+    if unsafe { libc::syscall(libc::SYS_capset, &raw const header, data.as_ptr()) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 pub(crate) enum Error {

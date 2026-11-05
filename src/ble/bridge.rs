@@ -36,6 +36,9 @@ pub fn serve(socket: &Path, parent: u32) -> Result<(), String> {
             None
         }
     };
+    if let Err(e) = mgmt::drop_capabilities() {
+        eprintln!("ble-bridge: cannot drop capabilities: {e}");
+    }
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| e.to_string())?;
     runtime.block_on(run(socket, parent, mgmt))
 }
