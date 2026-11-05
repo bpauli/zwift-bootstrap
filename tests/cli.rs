@@ -235,7 +235,6 @@ fn graphics_command_sets_and_shows_the_setting() {
 const PROFILE_FILES: [&str; 4] =
     ["data/configs/basic.txt", "data/configs/medium.txt", "data/configs/high.txt", "data/configs/ultra.txt"];
 
-/// A game with the four profile files of `contents` (basic, medium, high, ultra), installed.
 fn install_with_profiles(contents: [&'static [u8]; 4]) -> (FakeCdn, Dirs) {
     let files: Vec<(&str, &[u8])> = std::iter::once(("ZwiftApp.exe", &b"true\n"[..]))
         .chain(PROFILE_FILES.iter().copied().zip(contents))
@@ -257,7 +256,6 @@ fn profile_files(dirs: &Dirs) -> Vec<Vec<u8>> {
     PROFILE_FILES.iter().map(|file| fs::read(dirs.install.join(file)).unwrap()).collect()
 }
 
-/// Runs `launch` with the fake Wine and returns its one `graphics:` line.
 fn launch_graphics_line(dirs: &Dirs) -> String {
     let output = binary(dirs, &["launch"]).env("WINE", fake_wine(dirs)).output().unwrap();
     assert!(output.status.success(), "{output:?}");

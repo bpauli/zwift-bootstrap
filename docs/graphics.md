@@ -110,7 +110,7 @@ limit = (16.67 - 8.87) / k
 
 A calculation from the rounded values in the tables can differ from these limits by up to 0.01 ms.
 
-`launch` selects the highest profile whose limit is equal to or more than the GPU test time. If the test time is more than all limits, `launch` selects basic. The limits are in `LIMITS` in `src/graphics.rs`.
+`launch` selects the highest profile whose limit is equal to or more than the GPU test time. If the test time is more than all limits, `launch` selects basic. The limits are in `MAX_FRAME_MS_FOR_60_FPS` in `src/gpu_test.rs`.
 
 ## Limits of the calibration
 

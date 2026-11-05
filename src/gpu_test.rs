@@ -1,8 +1,3 @@
-//! The GPU test that `launch` runs before each start: a fixed OpenGL 3.3 workload in a
-//! headless EGL context, timed per frame with GL_TIME_ELAPSED. The limits in graphics.rs
-//! hold only for this exact workload (docs/graphics.md), so a change to a shader, a size or
-//! a count needs a new calibration.
-
 use std::ffi::{c_char, c_void};
 use std::ptr;
 
@@ -10,10 +5,13 @@ use glow::HasContext;
 use glutin_egl_sys::egl;
 use libloading::Library;
 
-use crate::graphics::GpuTest;
+use crate::graphics::{GpuTest, Profile};
 
 /// From EGL_MESA_platform_surfaceless, which glutin_egl_sys has no binding for.
 const PLATFORM_SURFACELESS_MESA: egl::types::EGLenum = 0x31DD;
+
+pub(crate) const MAX_FRAME_MS_FOR_60_FPS: [(Profile, f64); 3] =
+    [(Profile::Ultra, 7.25), (Profile::High, 7.84), (Profile::Medium, 8.88)];
 
 const WIDTH: i32 = 1920;
 const HEIGHT: i32 = 1080;
@@ -45,15 +43,8 @@ const MVP: [f32; 16] = [0.9, 0.0, 0.0, 0.0, 0.0, 0.9, 0.3, 0.0, 0.0, -0.4, 0.5, 
 
 type GetProcAddress = unsafe extern "C" fn(*const c_char) -> *const c_void;
 
-struct Egl {
-    api: egl::Egl,
-    /// Own type, because the binding returns a function pointer that cannot be null.
-    get_proc_address: GetProcAddress,
-}
-
 /// Tries the surfaceless platform first: on Mesa it picks the GPU that DRI_PRIME names, like
-/// the game gets. Then the EGL devices, for drivers without it (NVIDIA). A software renderer
-/// does not count: the game would not run on it, and the workload takes seconds there.
+/// the game gets. Then the EGL devices, for drivers without it (NVIDIA).
 pub(crate) fn run() -> Result<GpuTest, String> {
     let egl = load()?;
     let mut failures = Vec::new();
@@ -75,9 +66,7 @@ pub(crate) fn run() -> Result<GpuTest, String> {
     Err(failures.join("; "))
 }
 
-/// At run time, so the binary starts on a system without libEGL. Never unloaded: a driver can
-/// keep threads that run its code after eglTerminate.
-fn load() -> Result<&'static Egl, String> {
+fn load() -> Result<&'static egl::Egl, String> {
     let library = unsafe { Library::new("libEGL.so.1") }.map_err(|e| e.to_string())?;
     let library: &'static Library = Box::leak(Box::new(library));
     let symbol = unsafe { library.get::<GetProcAddress>(b"eglGetProcAddress\0") };
@@ -89,11 +78,11 @@ fn load() -> Result<&'static Egl, String> {
             Err(_) => unsafe { get_proc_address(name.as_ptr().cast()) },
         }
     });
-    Ok(Box::leak(Box::new(Egl { api, get_proc_address })))
+    Ok(Box::leak(Box::new(api)))
 }
 
-unsafe fn devices(egl: &Egl) -> Result<Vec<egl::types::EGLDeviceEXT>, String> {
-    let api = &egl.api;
+unsafe fn devices(egl: &egl::Egl) -> Result<Vec<egl::types::EGLDeviceEXT>, String> {
+    let api = egl;
     if !api.QueryDevicesEXT.is_loaded() || !api.GetPlatformDisplay.is_loaded() {
         return Err("no EGL device enumeration".into());
     }
@@ -109,22 +98,21 @@ unsafe fn devices(egl: &Egl) -> Result<Vec<egl::types::EGLDeviceEXT>, String> {
     Ok(devices)
 }
 
-fn egl_error(egl: &Egl, call: &str) -> String {
-    format!("{call} failed (EGL error {:#x})", unsafe { egl.api.GetError() })
+fn egl_error(egl: &egl::Egl, call: &str) -> String {
+    format!("{call} failed (EGL error {:#x})", unsafe { egl.GetError() })
 }
 
 struct Display<'a> {
-    egl: &'a Egl,
+    egl: &'a egl::Egl,
     raw: egl::types::EGLDisplay,
 }
 
 impl Drop for Display<'_> {
     fn drop(&mut self) {
-        unsafe { self.egl.api.Terminate(self.raw) };
+        unsafe { self.egl.Terminate(self.raw) };
     }
 }
 
-/// Released and destroyed on drop, so no context is left when `launch` execs Wine.
 struct Context<'a> {
     display: &'a Display<'a>,
     raw: egl::types::EGLContext,
@@ -132,7 +120,7 @@ struct Context<'a> {
 
 impl Drop for Context<'_> {
     fn drop(&mut self) {
-        let (api, display) = (&self.display.egl.api, self.display.raw);
+        let (api, display) = (self.display.egl, self.display.raw);
         unsafe {
             api.MakeCurrent(display, egl::NO_SURFACE, egl::NO_SURFACE, egl::NO_CONTEXT);
             api.DestroyContext(display, self.raw);
@@ -140,8 +128,8 @@ impl Drop for Context<'_> {
     }
 }
 
-unsafe fn test_on(egl: &Egl, platform: egl::types::EGLenum, native: *mut c_void) -> Result<GpuTest, String> {
-    let api = &egl.api;
+unsafe fn test_on(egl: &egl::Egl, platform: egl::types::EGLenum, native: *mut c_void) -> Result<GpuTest, String> {
+    let api = egl;
     if !api.GetPlatformDisplay.is_loaded() {
         return Err("no eglGetPlatformDisplay".into());
     }
@@ -182,12 +170,12 @@ unsafe fn test_on(egl: &Egl, platform: egl::types::EGLenum, native: *mut c_void)
     if unsafe { api.MakeCurrent(raw, egl::NO_SURFACE, egl::NO_SURFACE, context.raw) } == egl::FALSE {
         return Err(egl_error(egl, "eglMakeCurrent"));
     }
-    let gl = unsafe { glow::Context::from_loader_function_cstr(|name| (egl.get_proc_address)(name.as_ptr())) };
+    let gl = unsafe { glow::Context::from_loader_function_cstr(|name| egl.GetProcAddress(name.as_ptr()) as *const c_void) };
     let renderer = unsafe { gl.get_parameter_string(glow::RENDERER) };
     if ["llvmpipe", "softpipe", "swrast"].iter().any(|software| renderer.contains(software)) {
         return Err(format!("{renderer} is a software renderer"));
     }
-    let mut frames = unsafe { draw(&gl) }?;
+    let mut frames = unsafe { frame_times_ms(&gl) }?;
     frames.sort_by(f64::total_cmp);
     let frame_ms = frames[frames.len() / 2];
     if frame_ms.is_nan() || frame_ms <= 0.0 {
@@ -196,9 +184,7 @@ unsafe fn test_on(egl: &Egl, platform: egl::types::EGLenum, native: *mut c_void)
     Ok(GpuTest { renderer, frame_ms })
 }
 
-/// The frame times in ms of the measured frames. Each frame: a depth pass of the mesh into
-/// the shadow map, a lit pass that samples the shadow map, then 4 full-screen post passes.
-unsafe fn draw(gl: &glow::Context) -> Result<Vec<f64>, String> {
+unsafe fn frame_times_ms(gl: &glow::Context) -> Result<Vec<f64>, String> {
     let textures = [
         (glow::DEPTH_COMPONENT24, SHADOW, SHADOW, glow::DEPTH_COMPONENT, glow::FLOAT),
         (glow::RGBA8, WIDTH, HEIGHT, glow::RGBA, glow::UNSIGNED_BYTE),
@@ -335,9 +321,8 @@ unsafe fn program(gl: &glow::Context, vertex: &str, fragment: &str) -> Result<gl
 
 #[cfg(test)]
 mod tests {
-    /// Needs a GPU: `cargo test -- --ignored --nocapture gpu_test`.
     #[test]
-    #[ignore]
+    #[ignore = "needs a GPU"]
     fn the_gpu_test_runs_on_this_machine() {
         let test = super::run().unwrap();
         eprintln!("{} ms on {}", test.frame_ms, test.renderer);

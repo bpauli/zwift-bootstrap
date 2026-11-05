@@ -1,6 +1,3 @@
-//! The graphics profile that `launch` gives the game: the setting, the decision from the
-//! GPU test, and the four profile files. docs/graphics.md tells why.
-
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
@@ -10,14 +7,11 @@ use std::str::FromStr;
 
 use crate::Error;
 use crate::disk::{self, Inspection, Layout};
+use crate::gpu_test::MAX_FRAME_MS_FOR_60_FPS;
 use crate::model::{FileEntry, Manifest, RelPath};
 use crate::sync::io_error;
 
 const SETTING_FILE: &str = "graphics";
-
-/// Each limit is the GPU test time at which the model frame time of Zwift with that profile
-/// reaches 16.67 ms (60 FPS). docs/graphics.md has the data and the model.
-const LIMITS: [(Profile, f64); 3] = [(Profile::Ultra, 7.25), (Profile::High, 7.84), (Profile::Medium, 8.88)];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Profile {
@@ -64,16 +58,14 @@ impl Profile {
     }
 
     pub fn for_frame_time(frame_ms: f64) -> Profile {
-        LIMITS.iter().find(|(_, limit)| frame_ms <= *limit).map_or(Profile::Basic, |(profile, _)| *profile)
+        MAX_FRAME_MS_FOR_60_FPS.iter().find(|(_, limit)| frame_ms <= *limit).map_or(Profile::Basic, |(profile, _)| *profile)
     }
 
-    /// The manifest path of the profile file.
-    fn file(self) -> String {
+    fn manifest_path(self) -> String {
         format!("data/configs/{}.txt", self.name())
     }
 
-    /// The name of the copy of the original file in `.zwift-bootstrap/`.
-    fn copy(self) -> String {
+    fn original_copy_path(self) -> String {
         format!("profiles/{}.txt", self.name())
     }
 }
@@ -108,8 +100,7 @@ impl fmt::Display for GraphicsSetting {
 }
 
 impl GraphicsChoice {
-    /// The profile whose original goes into all four files. `None`: each file gets its own.
-    fn profile(&self) -> Option<Profile> {
+    fn forced_profile(&self) -> Option<Profile> {
         match self {
             GraphicsChoice::Fixed(profile) | GraphicsChoice::Measured { profile, .. } => Some(*profile),
             GraphicsChoice::GameDefault { .. } => None,
@@ -129,7 +120,6 @@ impl fmt::Display for GraphicsChoice {
     }
 }
 
-/// No file is `Auto`.
 pub(crate) fn read_setting(layout: &Layout) -> Result<GraphicsSetting, Error> {
     let path = layout.private(SETTING_FILE);
     match fs::read_to_string(&path) {
@@ -147,11 +137,7 @@ pub(crate) fn write_setting(layout: &Layout, setting: GraphicsSetting) -> Result
     layout.write_private_file(SETTING_FILE, bytes.as_bytes()).map_err(io_error(&layout.private(SETTING_FILE)))
 }
 
-/// Writes the original of the chosen profile into every profile file that the manifest lists.
-/// The originals are copies in `.zwift-bootstrap/`, taken from each file while it still has
-/// the content that the manifest lists. `measure` runs only for `Auto`, and only when there
-/// is an original to write.
-pub(crate) fn prepare(
+pub(crate) fn apply(
     layout: &Layout,
     manifest: &Manifest,
     measure: impl FnOnce() -> Result<GpuTest, String>,
@@ -160,7 +146,7 @@ pub(crate) fn prepare(
     let files: Vec<_> = profile_files(manifest).collect();
     let mut originals = BTreeMap::new();
     for (profile, path, entry) in &files {
-        if let Some(bytes) = original(layout, *profile, path, entry)? {
+        if let Some(bytes) = refresh_original(layout, *profile, path, entry)? {
             originals.insert(*profile, bytes);
         }
     }
@@ -172,14 +158,14 @@ pub(crate) fn prepare(
             Err(reason) => GraphicsChoice::GameDefault { reason: format!("GPU test failed: {reason}") },
         },
     };
-    let choice = match choice.profile() {
+    let choice = match choice.forced_profile() {
         Some(profile) if !originals.contains_key(&profile) => {
-            GraphicsChoice::GameDefault { reason: format!("no original copy of {}", profile.file()) }
+            GraphicsChoice::GameDefault { reason: format!("no original copy of {}", profile.manifest_path()) }
         }
         _ => choice,
     };
     for (profile, path, _) in &files {
-        let Some(bytes) = originals.get(&choice.profile().unwrap_or(*profile)) else { continue };
+        let Some(bytes) = originals.get(&choice.forced_profile().unwrap_or(*profile)) else { continue };
         let file = layout.installed(path);
         if !fs::read(&file).is_ok_and(|current| current == *bytes) {
             layout.write_install_file(path.as_str(), bytes).map_err(io_error(&file))?;
@@ -188,27 +174,23 @@ pub(crate) fn prepare(
     Ok(choice)
 }
 
-/// `launch` writes one original into all four profile files, so `verify` accepts a profile
-/// file that has the content of any of them.
 pub(crate) fn is_swapped_profile(manifest: &Manifest, path: &RelPath, file: &Path) -> bool {
     profile_files(manifest).any(|(_, other, _)| other == path)
         && profile_files(manifest).any(|(_, _, entry)| disk::inspect(file, entry).is_ok_and(|i| i == Inspection::Match))
 }
 
 fn profile_files(manifest: &Manifest) -> impl Iterator<Item = (Profile, &RelPath, &FileEntry)> {
-    let profile_of = |path: &RelPath| Profile::ALL.into_iter().find(|profile| path.as_str() == profile.file());
+    let profile_of = |path: &RelPath| Profile::ALL.into_iter().find(|profile| path.as_str() == profile.manifest_path());
     manifest.files().iter().filter_map(move |(path, entry)| Some((profile_of(path)?, path, entry)))
 }
 
-/// The installed file while it matches the manifest, which also refreshes the copy (a game
-/// update can bring a new original). Else the copy, if there is one.
-fn original(layout: &Layout, profile: Profile, path: &RelPath, entry: &FileEntry) -> Result<Option<Vec<u8>>, Error> {
+fn refresh_original(layout: &Layout, profile: Profile, path: &RelPath, entry: &FileEntry) -> Result<Option<Vec<u8>>, Error> {
     let file = layout.installed(path);
-    let copy = layout.private(&profile.copy());
+    let copy = layout.private(&profile.original_copy_path());
     if disk::inspect(&file, entry).map_err(io_error(&file))? == Inspection::Match {
         let bytes = fs::read(&file).map_err(io_error(&file))?;
         if !fs::read(&copy).is_ok_and(|current| current == bytes) {
-            layout.write_private_file(&profile.copy(), &bytes).map_err(io_error(&copy))?;
+            layout.write_private_file(&profile.original_copy_path(), &bytes).map_err(io_error(&copy))?;
         }
         return Ok(Some(bytes));
     }
@@ -224,12 +206,11 @@ mod tests {
     use super::*;
     use crate::model::{Checksum, Crc32, ServerFolder, Version};
 
-    /// An install whose four profile files hold the profile name, and its manifest.
     fn install() -> (tempfile::TempDir, Layout, Manifest) {
         let dir = tempfile::tempdir().unwrap();
         let layout = Layout { install: dir.path().join("install"), staging: dir.path().join("staging") };
         let entries = Profile::ALL.map(|profile| {
-            let path = RelPath::parse(&profile.file()).unwrap();
+            let path = RelPath::parse(&profile.manifest_path()).unwrap();
             let name = profile.name().as_bytes();
             fs::create_dir_all(layout.installed(&path).parent().unwrap()).unwrap();
             fs::write(layout.installed(&path), name).unwrap();
@@ -241,18 +222,18 @@ mod tests {
     }
 
     fn contents(layout: &Layout) -> [String; 4] {
-        Profile::ALL.map(|profile| fs::read_to_string(layout.install.join(profile.file())).unwrap())
+        Profile::ALL.map(|profile| fs::read_to_string(layout.install.join(profile.manifest_path())).unwrap())
     }
 
     #[test]
     fn auto_writes_the_measured_profile_and_a_failed_test_restores_the_originals() {
         let (_dir, layout, manifest) = install();
         let test = GpuTest { renderer: "Test GPU".into(), frame_ms: 7.5 };
-        let choice = prepare(&layout, &manifest, || Ok(test.clone())).unwrap();
+        let choice = apply(&layout, &manifest, || Ok(test.clone())).unwrap();
         assert_eq!(choice.to_string(), "high (GPU test 7.50 ms on Test GPU)");
         assert_eq!(contents(&layout), ["high"; 4]);
 
-        let choice = prepare(&layout, &manifest, || Err("no libEGL".into())).unwrap();
+        let choice = apply(&layout, &manifest, || Err("no libEGL".into())).unwrap();
         assert_eq!(choice.to_string(), "game default (GPU test failed: no libEGL)");
         assert_eq!(contents(&layout), ["basic", "medium", "high", "ultra"]);
     }
@@ -261,12 +242,12 @@ mod tests {
     fn the_gpu_test_runs_only_for_auto_with_an_original_to_write() {
         let (_dir, layout, manifest) = install();
         write_setting(&layout, GraphicsSetting::Fixed(Profile::Medium)).unwrap();
-        let choice = prepare(&layout, &manifest, || panic!("measured a fixed setting")).unwrap();
+        let choice = apply(&layout, &manifest, || panic!("measured a fixed setting")).unwrap();
         assert_eq!(choice, GraphicsChoice::Fixed(Profile::Medium));
 
         let empty = Manifest::new(Version::ZERO, ServerFolder::parse("F").unwrap(), Vec::new()).unwrap();
         write_setting(&layout, GraphicsSetting::Auto).unwrap();
-        let choice = prepare(&layout, &empty, || panic!("measured with nothing to write")).unwrap();
+        let choice = apply(&layout, &empty, || panic!("measured with nothing to write")).unwrap();
         assert_eq!(choice, GraphicsChoice::GameDefault { reason: "no original profile files".into() });
     }
 

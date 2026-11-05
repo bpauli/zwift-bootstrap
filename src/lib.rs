@@ -275,7 +275,7 @@ impl Bootstrapper {
         };
         self.install_shims()?;
         let stub = self.install_launcher_stub()?;
-        let choice = graphics::prepare(&self.layout, &manifest, gpu_test::run)?;
+        let choice = graphics::apply(&self.layout, &manifest, gpu_test::run)?;
         on_event(Event::Graphics(choice));
         let exe = if self.layout.install.join("ZwiftAppDev.exe").is_file() {
             "ZwiftAppDev.exe"
