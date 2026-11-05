@@ -207,3 +207,126 @@ fn install_window_without_a_display_installs_in_text_mode() {
     assert_eq!(stderr.matches("warning: cannot open the progress window (").count(), 1, "{stderr}");
     assert_installed(&dirs, &cdn.published());
 }
+
+fn stderr(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+#[test]
+fn graphics_command_sets_and_shows_the_setting() {
+    let dirs = binary_dirs();
+    let show = || stdout(&binary(&dirs, &["graphics"]).output().unwrap());
+    assert_eq!(show(), "auto\n", "no setting is auto");
+    assert!(binary(&dirs, &["graphics", "ultra"]).output().unwrap().status.success());
+    assert_eq!(show(), "ultra\n");
+    let bad = binary(&dirs, &["graphics", "fast"]).output().unwrap();
+    assert_eq!(bad.status.code(), Some(2));
+    assert_eq!(show(), "ultra\n", "an unknown word changes nothing");
+    assert!(binary(&dirs, &["graphics", "auto"]).output().unwrap().status.success());
+    assert_eq!(show(), "auto\n");
+
+    let file = dirs.install.join(".zwift-bootstrap/graphics");
+    fs::write(&file, "fast\n").unwrap();
+    let bad = binary(&dirs, &["graphics"]).output().unwrap();
+    assert_eq!(bad.status.code(), Some(2));
+    assert!(stderr(&bad).contains(&file.display().to_string()), "{}", stderr(&bad));
+}
+
+const PROFILE_FILES: [&str; 4] =
+    ["data/configs/basic.txt", "data/configs/medium.txt", "data/configs/high.txt", "data/configs/ultra.txt"];
+
+/// A game with the four profile files of `contents` (basic, medium, high, ultra), installed.
+fn install_with_profiles(contents: [&'static [u8]; 4]) -> (FakeCdn, Dirs) {
+    let files: Vec<(&str, &[u8])> = std::iter::once(("ZwiftApp.exe", &b"true\n"[..]))
+        .chain(PROFILE_FILES.iter().copied().zip(contents))
+        .collect();
+    let cdn = FakeCdn::start(Release { version: "1.0.1", files: &files });
+    let dirs = binary_dirs();
+    binary(&dirs, &["install", "--base-url", &cdn.base_url]).output().unwrap();
+    (cdn, dirs)
+}
+
+const ORIGINALS: [&[u8]; 4] = [
+    b"res 1024x576(0x)\nset gSSAO=0\n",
+    b"res 1280x720(0x)\n",
+    b"set gSSAO=1\n",
+    b"res 1920x1080(0x)\nsres 2048x2048\n",
+];
+
+fn profile_files(dirs: &Dirs) -> Vec<Vec<u8>> {
+    PROFILE_FILES.iter().map(|file| fs::read(dirs.install.join(file)).unwrap()).collect()
+}
+
+/// Runs `launch` with the fake Wine and returns its one `graphics:` line.
+fn launch_graphics_line(dirs: &Dirs) -> String {
+    let output = binary(dirs, &["launch"]).env("WINE", fake_wine(dirs)).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let stderr = stderr(&output);
+    let lines: Vec<&str> = stderr.lines().filter(|line| line.starts_with("graphics: ")).collect();
+    assert_eq!(lines.len(), 1, "{stderr}");
+    lines[0].to_owned()
+}
+
+#[test]
+fn launch_writes_the_set_profile_into_all_four_profile_files_and_verify_accepts_them() {
+    let (_cdn, dirs) = install_with_profiles(ORIGINALS);
+    binary(&dirs, &["graphics", "high"]).output().unwrap();
+    assert_eq!(launch_graphics_line(&dirs), "graphics: high (set with zwift-bootstrap graphics)");
+    assert_eq!(profile_files(&dirs), [ORIGINALS[2]; 4]);
+
+    let report = binary(&dirs, &["verify"]).output().unwrap();
+    assert_eq!(stdout(&report), "5 files checked, 0 problems\n", "a swapped profile file is not a problem");
+    fs::write(dirs.install.join(PROFILE_FILES[0]), b"tampered").unwrap();
+    let report = stdout(&binary(&dirs, &["verify"]).output().unwrap());
+    let tampered = report.starts_with("data/configs/basic.txt: length 8, ");
+    assert!(tampered && report.ends_with("\n5 files checked, 1 problems\n"), "{report}");
+
+    binary(&dirs, &["graphics", "ultra"]).output().unwrap();
+    assert_eq!(launch_graphics_line(&dirs), "graphics: ultra (set with zwift-bootstrap graphics)");
+    assert_eq!(profile_files(&dirs), [ORIGINALS[3]; 4], "the originals outlive the swap");
+}
+
+#[test]
+fn launch_without_an_original_of_the_profile_leaves_the_choice_to_the_game() {
+    let (_cdn, dirs) = install_with_profiles(ORIGINALS);
+    fs::write(dirs.install.join(PROFILE_FILES[3]), b"mine").unwrap();
+    binary(&dirs, &["graphics", "ultra"]).output().unwrap();
+    assert_eq!(launch_graphics_line(&dirs), "graphics: game default (no original copy of data/configs/ultra.txt)");
+    assert_eq!(profile_files(&dirs), [ORIGINALS[0], ORIGINALS[1], ORIGINALS[2], b"mine"]);
+
+    binary(&dirs, &["graphics", "high"]).output().unwrap();
+    launch_graphics_line(&dirs);
+    assert_eq!(profile_files(&dirs), [ORIGINALS[2]; 4]);
+
+    binary(&dirs, &["graphics", "ultra"]).output().unwrap();
+    assert_eq!(launch_graphics_line(&dirs), "graphics: game default (no original copy of data/configs/ultra.txt)");
+    let restored = [ORIGINALS[0], ORIGINALS[1], ORIGINALS[2], ORIGINALS[2]];
+    assert_eq!(profile_files(&dirs), restored, "the game default restores the originals it has");
+}
+
+#[test]
+fn launch_after_an_update_writes_the_new_original_of_the_profile() {
+    let (cdn, dirs) = install_with_profiles(ORIGINALS);
+    binary(&dirs, &["graphics", "ultra"]).output().unwrap();
+    launch_graphics_line(&dirs);
+    let new_ultra: &[u8] = b"res 2560x1440(0x)\n";
+    let files: Vec<(&str, &[u8])> = std::iter::once(("ZwiftApp.exe", &b"true\n"[..]))
+        .chain(PROFILE_FILES.iter().copied().zip([ORIGINALS[0], ORIGINALS[1], ORIGINALS[2], new_ultra]))
+        .collect();
+    cdn.publish(Release { version: "1.0.2", files: &files });
+    let update = binary(&dirs, &["update", "--base-url", &cdn.base_url]).output().unwrap();
+    assert!(update.status.success(), "{update:?}");
+    binary(&dirs, &["graphics", "high"]).output().unwrap();
+    launch_graphics_line(&dirs);
+    binary(&dirs, &["graphics", "ultra"]).output().unwrap();
+    launch_graphics_line(&dirs);
+    assert_eq!(profile_files(&dirs), [new_ultra; 4], "the copy of ultra.txt is the new original");
+}
+
+#[test]
+fn launch_with_no_profile_files_leaves_the_choice_to_the_game() {
+    let cdn = FakeCdn::start(Release { version: "1.0.1", files: &[("ZwiftApp.exe", b"true\n")] });
+    let dirs = binary_dirs();
+    binary(&dirs, &["install", "--base-url", &cdn.base_url]).output().unwrap();
+    assert_eq!(launch_graphics_line(&dirs), "graphics: game default (no original profile files)");
+}
