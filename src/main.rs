@@ -56,14 +56,6 @@ enum Command {
         /// auto, basic, medium, high or ultra.
         setting: Option<GraphicsSetting>,
     },
-    /// The Bluetooth LE bridge that `launch` starts.
-    #[command(hide = true)]
-    BleBridge {
-        socket: PathBuf,
-        /// The bridge ends when this process is no longer its parent.
-        #[arg(long)]
-        parent: u32,
-    },
 }
 
 #[derive(Args)]
@@ -165,37 +157,35 @@ fn run(command: Command, progress: &mut Progress) -> Result<ExitCode, Error> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Command::BleBridge { socket, parent } => match zwift_bootstrap::ble::serve(&socket, parent) {
-            Ok(()) => Ok(ExitCode::SUCCESS),
-            Err(e) => {
-                eprintln!("ble-bridge: {e}");
-                Ok(ExitCode::from(2))
-            }
-        },
     }
 }
 
-/// Starts `ble-bridge` as a child with this PID as its parent. `launch` then execs Wine,
-/// which keeps the PID, so the bridge ends with the game. Without a socket path the game
-/// runs without Bluetooth LE: it reports no Bluetooth radio.
+/// Starts `zwift-bootstrap-ble` from the directory of this binary as a child with this PID
+/// as its parent. `launch` then execs Wine, which keeps the PID, so the bridge ends with the
+/// game. Without a socket path the game runs without Bluetooth LE: it reports no Bluetooth
+/// radio.
 fn start_ble_bridge() -> Option<PathBuf> {
     let Some(runtime) = env::var_os("XDG_RUNTIME_DIR").filter(|d| !d.is_empty()) else {
         eprintln!("warning: XDG_RUNTIME_DIR is not set, so Bluetooth LE sensors are off");
         return None;
     };
     let socket = PathBuf::from(runtime).join("zwift-bootstrap-ble.sock");
-    let started = env::current_exe().and_then(|exe| {
-        std::process::Command::new(exe)
-            .arg("ble-bridge")
-            .arg(&socket)
-            .arg(format!("--parent={}", std::process::id()))
-            .stdin(std::process::Stdio::null())
-            .spawn()
-    });
+    let helper = match env::current_exe() {
+        Ok(exe) => exe.with_file_name("zwift-bootstrap-ble"),
+        Err(e) => {
+            eprintln!("warning: cannot find the Bluetooth LE bridge ({e}), so Bluetooth LE sensors are off");
+            return None;
+        }
+    };
+    let started = std::process::Command::new(&helper)
+        .arg(&socket)
+        .arg(format!("--parent={}", std::process::id()))
+        .stdin(std::process::Stdio::null())
+        .spawn();
     match started {
         Ok(_) => Some(socket),
         Err(e) => {
-            eprintln!("warning: cannot start the Bluetooth LE bridge ({e}), so Bluetooth LE sensors are off");
+            eprintln!("warning: cannot start {} ({e}), so Bluetooth LE sensors are off", helper.display());
             None
         }
     }

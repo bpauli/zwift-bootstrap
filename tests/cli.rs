@@ -8,7 +8,7 @@ mod common;
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -18,7 +18,11 @@ use common::*;
 /// The binary with its staging dir under `dirs.staging` (XDG_CACHE_HOME/zwift/downloads).
 /// `args[0]` is the subcommand; `--dir` goes right after it.
 fn binary(dirs: &Dirs, args: &[&str]) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_zwift-bootstrap"));
+    binary_at(Path::new(env!("CARGO_BIN_EXE_zwift-bootstrap")), dirs, args)
+}
+
+fn binary_at(exe: &Path, dirs: &Dirs, args: &[&str]) -> Command {
+    let mut command = Command::new(exe);
     command
         .arg(args[0])
         .arg("--dir")
@@ -177,6 +181,23 @@ fn launch_writes_the_shims_and_verify_accepts_the_replaced_game_files() {
     fs::write(dirs.install.join("BleWin10Lib.dll"), b"tampered").unwrap();
     let report = stdout(&binary(&dirs, &["verify"]).output().unwrap());
     assert!(report.starts_with("BleWin10Lib.dll: crc ") && report.ends_with("\n3 files checked, 1 problems\n"), "{report}");
+}
+
+#[test]
+fn launch_without_the_ble_helper_next_to_the_binary_starts_the_game_without_bluetooth_le() {
+    let script: &[u8] = b"printf '%s\\n' \"$ZWIFT_BLE_SOCKET\"\n";
+    let cdn = FakeCdn::start(Release { version: "1.0.1", files: &[("ZwiftApp.exe", script)] });
+    let dirs = binary_dirs();
+    binary(&dirs, &["install", "--base-url", &cdn.base_url]).output().unwrap();
+    let alone = dirs.root.path().join("alone");
+    fs::create_dir(&alone).unwrap();
+    fs::copy(env!("CARGO_BIN_EXE_zwift-bootstrap"), alone.join("zwift-bootstrap")).unwrap();
+    let output =
+        binary_at(&alone.join("zwift-bootstrap"), &dirs, &["launch"]).env("WINE", fake_wine(&dirs)).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(stdout(&output), format!("{}\n", stub_line(&dirs)), "the game gets no socket");
+    let helper = alone.join("zwift-bootstrap-ble");
+    assert!(stderr(&output).contains(&format!("cannot start {}", helper.display())), "{}", stderr(&output));
 }
 
 #[test]
