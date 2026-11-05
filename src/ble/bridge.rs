@@ -108,20 +108,17 @@ struct State {
     links: HashMap<Address, Link>,
 }
 
-/// A device the game asked to pair, from the connect attempt until the game unpairs it or
-/// the connection ends. Dropping it aborts the connect attempt and every later task, so a
-/// device the game unpaired never reports a late connect.
 struct Link {
     device: Device,
     name: String,
     /// Characteristics found at connect time, for writes.
     chars: Vec<(Uuid, Characteristic, WriteOp)>,
-    tasks: Vec<JoinHandle<()>>,
+    cancel_on_drop: Vec<JoinHandle<()>>,
 }
 
 impl Drop for Link {
     fn drop(&mut self) {
-        self.tasks.iter().for_each(JoinHandle::abort);
+        self.cancel_on_drop.iter().for_each(JoinHandle::abort);
     }
 }
 
@@ -130,7 +127,6 @@ struct Bridge {
     adapter: Adapter,
     state: Arc<Mutex<State>>,
     events: UnboundedSender<Event>,
-    /// None without CAP_NET_ADMIN: connections then use the interval the sensor prefers.
     mgmt: Arc<tokio::sync::Mutex<Option<Mgmt>>>,
 }
 
@@ -307,7 +303,6 @@ impl Bridge {
         self.send(Event::Advertisement { address, rssi, services, sections, name });
     }
 
-    /// Inserts the link and starts its connect attempt, which the link owns.
     fn pair(&self, address: Address) {
         let Ok(device) = self.adapter.device(address) else {
             return;
@@ -321,7 +316,7 @@ impl Bridge {
             return;
         }
         let connect = tokio::spawn(self.clone().connect_link(device.clone(), name.clone()));
-        state.links.insert(address, Link { device, name, chars: vec![], tasks: vec![connect] });
+        state.links.insert(address, Link { device, name, chars: vec![], cancel_on_drop: vec![connect] });
     }
 
     async fn connect_link(self, device: Device, name: String) {
@@ -331,7 +326,7 @@ impl Bridge {
             Ok(()) => {
                 let watcher = tokio::spawn(self.clone().watch_connection(device));
                 match self.state.lock().unwrap().links.get_mut(&address) {
-                    Some(link) => link.tasks.push(watcher),
+                    Some(link) => link.cancel_on_drop.push(watcher),
                     None => watcher.abort(),
                 }
             }
@@ -339,7 +334,6 @@ impl Bridge {
                 self.log(format!("Bluetooth helper: connect {name}: {e}"));
                 let _ = device.disconnect().await;
                 self.send(Event::Disconnected { address, unexpected: false, name });
-                // Last: dropping the link aborts this task at its next await.
                 let link = self.state.lock().unwrap().links.remove(&address);
                 drop(link);
             }
@@ -425,7 +419,7 @@ impl Bridge {
                 return Err("unpaired while connecting".into());
             };
             link.chars = chars;
-            link.tasks.extend(tasks);
+            link.cancel_on_drop.extend(tasks);
         }
         self.send(Event::Connected { address, matched, name: name.to_owned() });
         self.log(format!("Bluetooth helper: connected {name}"));
@@ -438,10 +432,10 @@ impl Bridge {
         Ok(())
     }
 
-    /// Loads the kernel default interval (30 ms to 50 ms) for the next connection to the
-    /// device. Without it, the kernel connects at the interval the sensor prefers, which
-    /// bluetoothd loaded after the first service discovery: 180 ms on a KICKR makes the
-    /// discovery take 17 s in place of 4 s, and 990 ms on a cadence sensor 53 s.
+    /// Without this command, the kernel connects at the interval that the sensor prefers.
+    /// bluetoothd loads that interval into the kernel after the first service discovery. At
+    /// 180 ms, the discovery on a KICKR takes 17 s in place of 4 s. At 990 ms, the discovery
+    /// on a cadence sensor takes 53 s.
     async fn ask_fast_interval(&self, device: &Device, name: &str) {
         let mut mgmt = self.mgmt.lock().await;
         let Some(socket) = mgmt.as_ref() else {
@@ -480,8 +474,6 @@ impl Bridge {
         }
     }
 
-    /// Removes the link first, which ends its connect attempt or its watcher, so that
-    /// nothing reports for the device after this.
     async fn unpair(&self, address: Address) {
         let link = self.state.lock().unwrap().links.remove(&address);
         let Some(link) = link else {

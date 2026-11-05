@@ -1,7 +1,7 @@
-//! The Bluetooth LE bridge that `launch` starts. Its own binary, because the packages give
-//! it the file capability cap_net_admin+ep for the management socket of the kernel, and a
-//! binary with a file capability runs in secure mode: glibc then strips LD_PRELOAD,
-//! LD_LIBRARY_PATH and TMPDIR from the environment, which `launch` must pass on to Wine.
+//! This is a separate binary because the packages give it the file capability
+//! cap_net_admin+ep. A binary with a file capability runs in secure mode, and glibc then
+//! removes LD_PRELOAD, LD_LIBRARY_PATH and TMPDIR from the environment. `launch` must pass
+//! these variables on to Wine.
 
 use std::path::PathBuf;
 use std::process::ExitCode;

@@ -160,10 +160,6 @@ fn run(command: Command, progress: &mut Progress) -> Result<ExitCode, Error> {
     }
 }
 
-/// Starts `zwift-bootstrap-ble` from the directory of this binary as a child with this PID
-/// as its parent. `launch` then execs Wine, which keeps the PID, so the bridge ends with the
-/// game. Without a socket path the game runs without Bluetooth LE: it reports no Bluetooth
-/// radio.
 fn start_ble_bridge() -> Option<PathBuf> {
     let Some(runtime) = env::var_os("XDG_RUNTIME_DIR").filter(|d| !d.is_empty()) else {
         eprintln!("warning: XDG_RUNTIME_DIR is not set, so Bluetooth LE sensors are off");

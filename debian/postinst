@@ -1,6 +1,4 @@
 #!/bin/sh
-# The Bluetooth LE bridge needs CAP_NET_ADMIN for a fast connection interval. See the
-# README, "Bluetooth LE sensors".
 set -e
 if command -v setcap >/dev/null 2>&1; then
     setcap cap_net_admin+ep /usr/bin/zwift-bootstrap-ble || echo "zwift-bootstrap: setcap failed, so Bluetooth LE connections use the preferred interval of the sensor" >&2

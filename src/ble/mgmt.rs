@@ -1,7 +1,5 @@
-//! The Bluetooth management socket of the kernel (MGMT), for one command: Load Connection
-//! Parameters, which sets the LE connection interval the kernel asks a device for. BlueZ
-//! has no D-Bus API for it. The kernel accepts the command only on a socket that a process
-//! with CAP_NET_ADMIN bound. Also the drop of that capability once the socket is bound.
+//! BlueZ has no D-Bus API for Load Connection Parameters. This MGMT command sets the LE
+//! connection interval that the kernel asks a device for.
 
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -19,11 +17,14 @@ const COMMAND_STATUS: u16 = 0x0002;
 const PERMISSION_DENIED: u8 = 0x14;
 const REPLY_TIMEOUT: Duration = Duration::from_secs(1);
 
-/// The kernel defaults: 30 ms to 50 ms (units of 1.25 ms), no latency, 420 ms (units of 10 ms).
-const MIN_INTERVAL: u16 = 24;
-const MAX_INTERVAL: u16 = 40;
-const LATENCY: u16 = 0;
-const SUPERVISION_TIMEOUT: u16 = 42;
+const fn units_of_1250_us(ms: u16) -> u16 {
+    ms * 4 / 5
+}
+
+const KERNEL_DEFAULT_MIN_INTERVAL: u16 = units_of_1250_us(30);
+const KERNEL_DEFAULT_MAX_INTERVAL: u16 = units_of_1250_us(50);
+const KERNEL_DEFAULT_LATENCY: u16 = 0;
+const KERNEL_DEFAULT_SUPERVISION_TIMEOUT_10_MS: u16 = 420 / 10;
 
 #[repr(C)]
 struct SockaddrHci {
@@ -32,8 +33,8 @@ struct SockaddrHci {
     channel: u16,
 }
 
-/// Opens and binds the control channel. The bind needs no capability, but only a bind with
-/// CAP_NET_ADMIN gives a socket the kernel accepts commands from.
+/// The bind needs no capability. But the kernel accepts commands only on a socket that a
+/// process with CAP_NET_ADMIN bound.
 pub(crate) fn open() -> io::Result<OwnedFd> {
     let flags = libc::SOCK_RAW | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK;
     let fd = unsafe { libc::socket(libc::AF_BLUETOOTH, flags, BTPROTO_HCI) };
@@ -65,9 +66,6 @@ struct CapData {
     inheritable: u32,
 }
 
-/// Clears the permitted, effective and inheritable capability sets of this process. The
-/// packages give the bridge binary cap_net_admin+ep; after the bind of the management
-/// socket it has no more use for it.
 pub(crate) fn drop_capabilities() -> io::Result<()> {
     let header = CapHeader { version: LINUX_CAPABILITY_VERSION_3, pid: 0 };
     let none = || CapData { effective: 0, permitted: 0, inheritable: 0 };
@@ -85,7 +83,6 @@ pub(crate) enum Error {
 
 pub(crate) struct Mgmt {
     fd: AsyncFd<OwnedFd>,
-    /// The controller index of the adapter, from its name "hciN".
     index: u16,
 }
 
@@ -102,7 +99,6 @@ impl Mgmt {
         &self, address: Address, address_type: AddressType,
     ) -> Result<(), Error> {
         let command = load_connection_parameters(self.index, address, address_type as u8);
-        // The kernel answers a refused command with a Command Status and a write result of 0.
         if unsafe { libc::write(self.fd.as_raw_fd(), command.as_ptr().cast(), command.len()) } < 0 {
             return Err(Error::Other(io::Error::last_os_error().to_string()));
         }
@@ -115,10 +111,7 @@ impl Mgmt {
         }
     }
 
-    /// The status of the next Command Complete or Command Status for our command. Every
-    /// MGMT event comes in on this socket; the others are skipped.
     async fn reply(&self) -> io::Result<u8> {
-        // A longer event is cut off; the status is in the first 9 bytes.
         let mut event = [0u8; 64];
         loop {
             let mut guard = self.fd.readable().await?;
@@ -134,37 +127,32 @@ impl Mgmt {
     }
 }
 
-/// Load Connection Parameters for one device, as the kernel reads it: a header of opcode,
-/// controller index and parameter length, then the count and the entry, all little endian.
-fn load_connection_parameters(index: u16, address: Address, address_type: u8) -> [u8; 23] {
-    let mut command = [0u8; 23];
-    let fields = [LOAD_CONN_PARAM, index, 17, 1];
-    for (i, field) in fields.iter().enumerate() {
-        command[2 * i..2 * i + 2].copy_from_slice(&field.to_le_bytes());
-    }
-    let mut bdaddr = address.0;
-    bdaddr.reverse();
-    command[8..14].copy_from_slice(&bdaddr);
-    command[14] = address_type;
-    let parameters = [MIN_INTERVAL, MAX_INTERVAL, LATENCY, SUPERVISION_TIMEOUT];
-    for (i, parameter) in parameters.iter().enumerate() {
-        command[15 + 2 * i..17 + 2 * i].copy_from_slice(&parameter.to_le_bytes());
-    }
-    command
+fn load_connection_parameters(index: u16, address: Address, address_type: u8) -> Vec<u8> {
+    let mut entry: Vec<u8> = address.0.iter().rev().copied().collect();
+    entry.push(address_type);
+    let parameters = [
+        KERNEL_DEFAULT_MIN_INTERVAL,
+        KERNEL_DEFAULT_MAX_INTERVAL,
+        KERNEL_DEFAULT_LATENCY,
+        KERNEL_DEFAULT_SUPERVISION_TIMEOUT_10_MS,
+    ];
+    entry.extend(parameters.iter().flat_map(|parameter| parameter.to_le_bytes()));
+    let entry_count: u16 = 1;
+    let parameter_length = (size_of::<u16>() + entry.len()) as u16;
+    let header = [LOAD_CONN_PARAM, index, parameter_length, entry_count];
+    header.iter().flat_map(|field| field.to_le_bytes()).chain(entry).collect()
 }
 
-/// The status byte of a Command Complete or Command Status event for Load Connection
-/// Parameters; `None` for any other event.
 fn reply_status(event: &[u8]) -> Option<u8> {
-    let code = u16::from_le_bytes([*event.first()?, *event.get(1)?]);
-    if code != COMMAND_COMPLETE && code != COMMAND_STATUS {
+    let &[code_low, code_high, _index_low, _index_high, _length_low, _length_high, opcode_low, opcode_high, status, ..] =
+        event
+    else {
         return None;
-    }
-    let opcode = u16::from_le_bytes([*event.get(6)?, *event.get(7)?]);
-    if opcode != LOAD_CONN_PARAM {
-        return None;
-    }
-    event.get(8).copied()
+    };
+    let code = u16::from_le_bytes([code_low, code_high]);
+    let opcode = u16::from_le_bytes([opcode_low, opcode_high]);
+    let is_reply = code == COMMAND_COMPLETE || code == COMMAND_STATUS;
+    (is_reply && opcode == LOAD_CONN_PARAM).then_some(status)
 }
 
 #[cfg(test)]
@@ -175,18 +163,29 @@ mod tests {
     fn load_connection_parameters_is_the_kernel_layout() {
         let kickr = Address([0xe5, 0x4f, 0x50, 0x22, 0x6b, 0xe3]);
         let command = load_connection_parameters(0, kickr, AddressType::LeRandom as u8);
+        let opcode = [0x35, 0x00];
+        let hci0 = [0x00, 0x00];
+        let parameter_length_17 = [0x11, 0x00];
+        let one_entry = [0x01, 0x00];
+        let address_least_significant_byte_first = [0xe3, 0x6b, 0x22, 0x50, 0x4f, 0xe5];
+        let le_random = [0x02];
+        let min_interval_30_ms = [0x18, 0x00];
+        let max_interval_50_ms = [0x28, 0x00];
+        let no_latency = [0x00, 0x00];
+        let supervision_timeout_420_ms = [0x2a, 0x00];
         let expected = [
-            0x35, 0x00, // Load Connection Parameters
-            0x00, 0x00, // hci0
-            0x11, 0x00, // 17 parameter bytes
-            0x01, 0x00, // one entry
-            0xe3, 0x6b, 0x22, 0x50, 0x4f, 0xe5, // the address, least significant byte first
-            0x02, // LE random
-            0x18, 0x00, // min 24 (30 ms)
-            0x28, 0x00, // max 40 (50 ms)
-            0x00, 0x00, // latency
-            0x2a, 0x00, // timeout 42 (420 ms)
-        ];
+            &opcode[..],
+            &hci0,
+            &parameter_length_17,
+            &one_entry,
+            &address_least_significant_byte_first,
+            &le_random,
+            &min_interval_30_ms,
+            &max_interval_50_ms,
+            &no_latency,
+            &supervision_timeout_420_ms,
+        ]
+        .concat();
         assert_eq!(command, expected);
     }
 
