@@ -42,6 +42,10 @@ tempfile = "3.27"
 # Gzip the fake CDN's XML like CloudFront. Already in the graph through ureq.
 flate2 = "1.1"
 
+# cargo-deb strips only its own copy. The .rpm and the tarball take target/release as it is.
+[profile.release]
+strip = true
+
 [package.metadata.deb]
 maintainer = "Burkhard Pauli <burkhard@pauli.tech>"
 copyright = "2026, Burkhard Pauli"
