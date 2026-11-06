@@ -21,13 +21,13 @@ jobs:
       - name: Install build tools
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends build-essential ca-certificates curl gcc-mingw-w64-x86-64 git jq libdbus-1-dev pkg-config
+          apt-get install -y --no-install-recommends build-essential ca-certificates curl gcc-mingw-w64-x86-64 git jq libdbus-1-dev pkg-config rpm
 
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-deb
+          tool: cargo-deb,cargo-generate-rpm
 
       - name: Read the version
         run: |
@@ -40,6 +40,10 @@ jobs:
 
       - run: cargo deb --locked
 
+      # The builtin auto-req uses ldd, which also lists the libraries of libdbus. find-requires
+      # lists only the libraries that the binaries link, as rpmbuild does.
+      - run: cargo generate-rpm --auto-req find-requires
+
       - name: Package
         run: |
           name="zwift-bootstrap_${VERSION}_linux_amd64"
@@ -49,7 +53,9 @@ jobs:
           tar czf "${name}.tar.gz" -C dist .
           cp target/debian/zwift-bootstrap_*_amd64.deb .
           dpkg-deb --field zwift-bootstrap_*_amd64.deb Depends
-          sha256sum "${name}.tar.gz" zwift-bootstrap_*_amd64.deb > checksums.txt
+          cp target/generate-rpm/zwift-bootstrap-*.x86_64.rpm .
+          rpm -qpR zwift-bootstrap-*.x86_64.rpm
+          sha256sum "${name}.tar.gz" zwift-bootstrap_*_amd64.deb zwift-bootstrap-*.x86_64.rpm > checksums.txt
 
       - uses: actions/upload-artifact@v4
         with:
@@ -57,6 +63,7 @@ jobs:
           path: |
             zwift-bootstrap_*_linux_amd64.tar.gz
             zwift-bootstrap_*_amd64.deb
+            zwift-bootstrap-*.x86_64.rpm
             checksums.txt
           if-no-files-found: error
 
@@ -70,7 +77,7 @@ jobs:
           name: release
 
       - name: Create the GitHub release
-        run: gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" --generate-notes zwift-bootstrap_*_linux_amd64.tar.gz zwift-bootstrap_*_amd64.deb checksums.txt
+        run: gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" --generate-notes zwift-bootstrap_*_linux_amd64.tar.gz zwift-bootstrap_*_amd64.deb zwift-bootstrap-*.x86_64.rpm checksums.txt
         env:
           GH_TOKEN: ${{ github.token }}
 

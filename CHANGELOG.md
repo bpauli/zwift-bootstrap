@@ -8,6 +8,7 @@ All notable changes to zwift-bootstrap are in this file. The format follows [Kee
 
 - A "Hardware report" issue template for the GPU, the sensors and the ANT+ stick that work on a computer. The README and `docs/graphics.md` link to it.
 - The README tells why zwift-bootstrap is different from Lutris, Bottles and Docker.
+- Each release has an `.rpm` package for Fedora 41 or later and AlmaLinux 10 next to the `.deb` package. It contains the same files as the `.deb` package. At install, rpm gives `zwift-bootstrap-ble` the file capability `cap_net_admin=ep`. Red Hat Enterprise Linux 9 and its rebuilds cannot install it, because their glibc 2.34 is too old.
 
 ### Changed
 
