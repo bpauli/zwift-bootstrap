@@ -44,11 +44,14 @@ sudo apt update
 sudo apt install zwift-bootstrap
 ```
 
-On Fedora 41 or later and AlmaLinux 10, download the `.rpm` file from the [GitHub release page](https://github.com/bpauli/zwift-bootstrap/releases/latest) and install it:
+On Fedora 41 or later and AlmaLinux 10, add the DNF repository and install the package:
 
 ```sh
-sudo dnf install ./zwift-bootstrap-<version>-1.x86_64.rpm
+sudo curl -fsSL -o /etc/yum.repos.d/bpauli.repo https://bpauli.de/rpm-packages/bpauli.repo
+sudo dnf install zwift-bootstrap
 ```
+
+dnf asks you to import the signing key. It is the key of the APT repository, with the fingerprint `D938 19E1 6C12 6779 1909  1714 0B1A E188 72B1 9100`.
 
 The package also installs `zwift-start` and the desktop entry, and gives `zwift-bootstrap-ble` its capability. Red Hat Enterprise Linux 9 and its rebuilds, for example Rocky Linux 9, cannot install the package. They have glibc 2.34, and zwift-bootstrap needs glibc 2.35 or later.
 
