@@ -66,3 +66,18 @@ assets = [
     ["contrib/zwift.png", "usr/share/icons/hicolor/192x192/apps/zwift-bootstrap.png", "644"],
     ["README.md", "usr/share/doc/zwift-bootstrap/README.md", "644"],
 ]
+
+[package.metadata.generate-rpm]
+release = "1"
+assets = [
+    { source = "target/release/zwift-bootstrap", dest = "/usr/bin/", mode = "755" },
+    { source = "target/release/zwift-bootstrap-ble", dest = "/usr/bin/", mode = "755", caps = "cap_net_admin=ep" },
+    { source = "contrib/zwift-start", dest = "/usr/bin/zwift-start", mode = "755" },
+    { source = "contrib/zwift.desktop", dest = "/usr/share/applications/zwift-bootstrap.desktop", mode = "644" },
+    { source = "contrib/zwift.png", dest = "/usr/share/icons/hicolor/192x192/apps/zwift-bootstrap.png", mode = "644" },
+    { source = "README.md", dest = "/usr/share/doc/zwift-bootstrap/README.md", mode = "644", doc = true },
+]
+
+[package.metadata.generate-rpm.suggests]
+wine = "*"
+libnotify = "*"

@@ -44,7 +44,15 @@ sudo apt update
 sudo apt install zwift-bootstrap
 ```
 
-Each release also has the `.deb` file and the binaries as a `.tar.gz` file on its GitHub release page. Put `zwift-bootstrap` and the Bluetooth LE helper `zwift-bootstrap-ble` into the same directory, and see "Bluetooth LE sensors" for the capability of the helper. The binaries need the D-Bus library (`libdbus-1`), which most desktops already have.
+On Fedora 41 or later and AlmaLinux 10, download the `.rpm` file from the [GitHub release page](https://github.com/bpauli/zwift-bootstrap/releases/latest) and install it:
+
+```sh
+sudo dnf install ./zwift-bootstrap-<version>-1.x86_64.rpm
+```
+
+The package also installs `zwift-start` and the desktop entry, and gives `zwift-bootstrap-ble` its capability. Red Hat Enterprise Linux 9 and its rebuilds, for example Rocky Linux 9, cannot install the package. They have glibc 2.34, and zwift-bootstrap needs glibc 2.35 or later.
+
+Each release also has the `.deb` file, the `.rpm` file and the binaries as a `.tar.gz` file on its GitHub release page. Put `zwift-bootstrap` and the Bluetooth LE helper `zwift-bootstrap-ble` into the same directory, and see "Bluetooth LE sensors" for the capability of the helper. The binaries need the D-Bus library (`libdbus-1`), which most desktops already have.
 
 To build from source, see [docs/building.md](docs/building.md).
 
@@ -166,7 +174,7 @@ The helper listens on `$XDG_RUNTIME_DIR/zwift-bootstrap-ble.sock`. If `XDG_RUNTI
 
 ### The CAP_NET_ADMIN capability
 
-The `.deb` package gives `/usr/bin/zwift-bootstrap-ble` the file capability `cap_net_admin+ep`. With it, the helper asks the kernel for a fast connection interval (30 ms to 50 ms) before each connection to a sensor. Without it, the kernel uses the interval that the sensor prefers, and the service discovery after the connection is slow: a Wahoo KICKR (180 ms) connects in about 25 s and a Wahoo cadence sensor (990 ms) in about 60 s, in place of about 4 s. BlueZ has no D-Bus API for the connection interval, so the helper sends the request on the Bluetooth management socket of the kernel, which accepts it only from a process with `CAP_NET_ADMIN`.
+The `.deb` package and the `.rpm` package give `/usr/bin/zwift-bootstrap-ble` the file capability `cap_net_admin+ep`. With it, the helper asks the kernel for a fast connection interval (30 ms to 50 ms) before each connection to a sensor. Without it, the kernel uses the interval that the sensor prefers, and the service discovery after the connection is slow: a Wahoo KICKR (180 ms) connects in about 25 s and a Wahoo cadence sensor (990 ms) in about 60 s, in place of about 4 s. BlueZ has no D-Bus API for the connection interval, so the helper sends the request on the Bluetooth management socket of the kernel, which accepts it only from a process with `CAP_NET_ADMIN`.
 
 `CAP_NET_ADMIN` lets a process change the network configuration of the system, for example the interfaces, the routes and the Bluetooth controllers. To keep its use small, the helper drops the capability as soon as it has opened the kernel socket. The helper is a separate file because a binary with a file capability runs in secure mode, where glibc removes `LD_PRELOAD`, `LD_LIBRARY_PATH` and `TMPDIR` from the environment, and `zwift-bootstrap launch` must pass these on to Wine for tools such as `gamemoderun` and MangoHud. The game runs without the capability.
 

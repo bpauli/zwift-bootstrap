@@ -1,6 +1,6 @@
 # Build zwift-bootstrap from source
 
-You need these steps only to build zwift-bootstrap yourself. The AUR package, the APT package and the release files contain the compiled binary. See [Install](../README.md#install).
+You need these steps only to build zwift-bootstrap yourself. The AUR package, the APT package, the RPM package and the release files contain the compiled binary. See [Install](../README.md#install).
 
 ## Requirements
 
@@ -18,6 +18,12 @@ On Debian and Ubuntu:
 
 ```sh
 apt install gcc-mingw-w64-x86-64 libdbus-1-dev pkg-config
+```
+
+On Fedora:
+
+```sh
+dnf install rust cargo mingw64-gcc dbus-devel pkgconf-pkg-config
 ```
 
 If the Rust package of your release is older than 1.95, install Rust with [rustup](https://rustup.rs).
